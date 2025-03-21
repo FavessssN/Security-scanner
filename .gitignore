@@ -70,4 +70,16 @@ nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
-.hypothesis/ 
+.hypothesis/
+
+# Documentation
+*.txt
+!requirements.txt
+!LICENSE
+!README.md
+
+# Project specific
+asset_inventory_guide.txt
+attack_surface_framework.txt
+project_report.txt
+vulnerability_assessment_guide.txt 
