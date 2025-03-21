@@ -1,0 +1,84 @@
+name: Semgrep Security Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0'  # Run weekly on Sunday
+
+jobs:
+  semgrep:
+    name: Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Required for some Semgrep rules
+
+      - name: Semgrep Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/python
+          outputFormat: sarif
+          outputFile: results.sarif
+          severity: ERROR
+          extraFlags: --metrics=off
+          options: >-
+            --exclude="tests/"
+            --exclude="venv/"
+            --exclude=".env"
+            --exclude=".git"
+            --exclude="__pycache__"
+            --exclude="*.pyc"
+            --exclude="*.pyo"
+            --exclude="*.pyd"
+            --exclude=".Python"
+            --exclude="build"
+            --exclude="develop-eggs"
+            --exclude="dist"
+            --exclude="downloads"
+            --exclude="eggs"
+            --exclude=".eggs"
+            --exclude="lib"
+            --exclude="lib64"
+            --exclude="parts"
+            --exclude="sdist"
+            --exclude="var"
+            --exclude="wheels"
+            --exclude="*.egg-info"
+            --exclude=".installed.cfg"
+            --exclude="*.egg"
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: results.sarif
+
+      - name: Check for high severity issues
+        run: |
+          if [ -f results.sarif ]; then
+            echo "Checking for high severity issues..."
+            if grep -q '"level": "error"' results.sarif; then
+              echo "❌ High severity issues found!"
+              echo "Please check the Security tab for details"
+              exit 1
+            else
+              echo "✅ No high severity issues found"
+            fi
+          else
+            echo "No SARIF results file found"
+          fi
+
+      - name: Generate Security Report
+        run: |
+          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Summary" >> $GITHUB_STEP_SUMMARY
+          if [ -f results.sarif ]; then
+            echo "- Scan completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "- Results uploaded to Security tab" >> $GITHUB_STEP_SUMMARY
+            echo "- Check the Security tab for detailed findings" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- No results file generated" >> $GITHUB_STEP_SUMMARY
+          fi 
