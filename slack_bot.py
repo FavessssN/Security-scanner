@@ -107,8 +107,8 @@ def format_results(results):
     if results.get('network_security'):
         network = results['network_security']
         message += "*Network Security*\n"
-        message += f"• Open Ports: {len(network.get('port_scan', {}).get('open_ports', []))}\n"
-        message += f"• Services: {len(network.get('port_scan', {}).get('services', []))}\n\n"
+        message += f"• Passive Port Information: {len(network.get('passive_port_info', {}).get('ports', []))}\n"
+        message += f"• Passive Service Information: {len(network.get('passive_service_info', {}).get('services', []))}\n\n"
     
     # Email Security
     if results.get('email_security'):

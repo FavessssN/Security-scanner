@@ -34,9 +34,72 @@ import base64
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+import yaml
+import logging
+from logging.handlers import RotatingFileHandler
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from redis import asyncio as aioredis
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+# Configure logging
+def setup_logging():
+    logger = logging.getLogger('security_scanner')
+    logger.setLevel(logging.INFO)
+    
+    # File handler
+    file_handler = RotatingFileHandler(
+        'security_scanner.log',
+        maxBytes=1024*1024,  # 1MB
+        backupCount=5
+    )
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    ))
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(
+        '%(levelname)s: %(message)s'
+    ))
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    return logger
+
+logger = setup_logging()
 
 # Initialize FastAPI app
 app = FastAPI(title="Security Scanner API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize Redis cache
+@app.on_event("startup")
+async def startup():
+    redis = aioredis.from_url("redis://localhost", encoding="utf8", decode_responses=True)
+    FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
+
+# Security settings
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 class ScanRequest(BaseModel):
     target: Optional[str] = None
@@ -72,6 +135,9 @@ class SecurityScanner:
             'historical_data': {}
         }
         
+        # Load configuration
+        self.load_config()
+        
         # Initialize database for historical data
         self.init_database()
         
@@ -80,21 +146,151 @@ class SecurityScanner:
         if os.getenv('SLACK_BOT_TOKEN'):
             self.slack_client = WebClient(token=os.getenv('SLACK_BOT_TOKEN'))
             
-        # Initialize scan profiles
-        self.scan_profiles = {
-            'quick': {
-                'vuln_scan': False,
-                'compliance': False
-            },
-            'standard': {
-                'vuln_scan': True,
-                'compliance': True
-            },
-            'comprehensive': {
-                'vuln_scan': True,
-                'compliance': True
-            }
-        }
+        logger.info(f"SecurityScanner initialized for target: {target}, email: {email}")
+
+    def load_config(self):
+        """Load configuration from YAML file"""
+        try:
+            with open('config.yaml', 'r') as f:
+                config = yaml.safe_load(f)
+                self.scan_profiles = config.get('scan_profiles', {})
+                self.api_keys = config.get('api_keys', {})
+                self.scan_options = config.get('scan_options', {})
+                self.logging_config = config.get('logging', {})
+                logger.info("Configuration loaded successfully")
+        except Exception as e:
+            logger.error(f"Error loading configuration: {str(e)}")
+            raise
+
+    def generate_pdf_report(self):
+        """Generate PDF report"""
+        try:
+            doc = SimpleDocTemplate("security_report.pdf")
+            elements = []
+            
+            # Add report content
+            data = [
+                ['Security Assessment Report'],
+                ['Target:', self.target],
+                ['Date:', datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
+                ['Network Security'],
+                ['IP Information:', str(self.results['network_security'].get('ip_info', {}))],
+                ['DNS Records:', str(self.results['network_security'].get('dns_info', {}))],
+                ['WHOIS Information:', str(self.results['network_security'].get('whois_info', {}))],
+                ['Email Security'],
+                ['Validation:', str(self.results['email_security'].get('validation', {}))],
+                ['Domain Security:', str(self.results['email_security'].get('domain_security', {}))],
+                ['Server Configuration:', str(self.results['email_security'].get('server_config', {}))],
+                ['DNS Health'],
+                ['Security Records:', str(self.results['dns_health'].get('security_records', {}))],
+                ['Issues:', ', '.join(self.results['dns_health'].get('issues', [])) if self.results['dns_health'].get('issues', []) else 'None']
+            ]
+            
+            table = Table(data)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 12),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            elements.append(table)
+            doc.build(elements)
+            logger.info("PDF report generated successfully")
+        except Exception as e:
+            logger.error(f"Error generating PDF report: {str(e)}")
+            raise
+
+    async def continuous_monitoring(self):
+        """Enable continuous monitoring"""
+        try:
+            while True:
+                # Perform periodic checks
+                await self.run_scan()
+                # Check for changes
+                await self.detect_changes()
+                # Generate alerts if needed
+                await self.generate_alerts()
+                await asyncio.sleep(3600)  # Check every hour
+        except Exception as e:
+            logger.error(f"Error in continuous monitoring: {str(e)}")
+            raise
+
+    async def detect_changes(self):
+        """Detect changes in security posture"""
+        try:
+            # Compare current results with historical data
+            conn = sqlite3.connect('security_scanner.db')
+            cursor = conn.cursor()
+            
+            # Get last scan results
+            cursor.execute('''
+                SELECT findings FROM scan_history 
+                WHERE target = ? 
+                ORDER BY scan_date DESC LIMIT 1
+            ''', (self.target,))
+            
+            last_scan = cursor.fetchone()
+            if last_scan:
+                last_results = json.loads(last_scan[0])
+                # Compare with current results
+                changes = self.compare_results(last_results, self.results)
+                if changes:
+                    logger.info(f"Changes detected: {changes}")
+                    await self.generate_alerts(changes)
+            
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error detecting changes: {str(e)}")
+            raise
+
+    def compare_results(self, old_results, new_results):
+        """Compare old and new scan results"""
+        changes = []
+        for category in new_results:
+            if category in old_results:
+                if old_results[category] != new_results[category]:
+                    changes.append(f"Changes in {category}")
+        return changes
+
+    async def generate_alerts(self, changes=None):
+        """Generate alerts for significant changes or issues"""
+        try:
+            alerts = []
+            
+            # Check for high severity issues
+            if self.results['vulnerability_assessment'].get('common_vulnerabilities'):
+                alerts.append("High severity vulnerabilities detected")
+            
+            # Check for SSL/TLS issues
+            if self.results['ssl_tls_security'].get('security_issues'):
+                alerts.append("SSL/TLS security issues detected")
+            
+            # Check for DNS issues
+            if self.results['dns_health'].get('issues'):
+                alerts.append("DNS health issues detected")
+            
+            # Add changes to alerts
+            if changes:
+                alerts.extend(changes)
+            
+            # Send alerts if any
+            if alerts:
+                if self.slack_client:
+                    await self.send_slack_report(os.getenv('SLACK_ALERT_CHANNEL'))
+                logger.warning(f"Alerts generated: {alerts}")
+                
+        except Exception as e:
+            logger.error(f"Error generating alerts: {str(e)}")
+            raise
 
     def init_database(self):
         """Initialize SQLite database for historical data"""
@@ -981,8 +1177,8 @@ Network Security Assessment:
 IP Information: {network_info.get('ip_info', {})}
 DNS Records: {network_info.get('dns_info', {})}
 WHOIS Information: {network_info.get('whois_info', {})}
-Open Ports: {len(network_info.get('port_scan', {}).get('open_ports', []))}
-Services: {len(network_info.get('port_scan', {}).get('services', []))}
+Passive Port Information: {len(network_info.get('passive_port_info', {}).get('ports', []))}
+Passive Service Information: {len(network_info.get('passive_service_info', {}).get('services', []))}
             """, title="Network Security"))
 
         # Email Security
@@ -1145,8 +1341,8 @@ Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 • IP Information: {self.results['network_security'].get('ip_info', {})}
 • DNS Records: {self.results['network_security'].get('dns_info', {})}
 • WHOIS Information: {self.results['network_security'].get('whois_info', {})}
-• Open Ports: {len(self.results['network_security'].get('port_scan', {}).get('open_ports', []))}
-• Services: {len(self.results['network_security'].get('port_scan', {}).get('services', []))}
+• Passive Port Information: {len(self.results['network_security'].get('passive_port_info', {}).get('ports', []))}
+• Passive Service Information: {len(self.results['network_security'].get('passive_service_info', {}).get('services', []))}
 
 *Email Security*
 • Validation: {self.results['email_security'].get('validation', {})}

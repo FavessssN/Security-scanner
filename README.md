@@ -1,131 +1,48 @@
-# Enhanced Attack Surface Assessment Tool
+# Security Scanner
 
-A comprehensive security assessment tool that performs passive reconnaissance and security checks on websites and email addresses. The tool is designed to be non-intrusive while providing detailed security insights.
+A comprehensive passive security assessment tool that performs various security checks without intrusive scanning.
 
 ## Features
 
-### Website Security Assessment
-- **Network Security**
-  - Passive DNS analysis
-  - WHOIS information gathering
-  - IP reputation checking
-  - ASN information collection
-  - Passive port and service enumeration via Shodan
+### Core Security Assessments
+- Network Security (Passive)
+- DNS Health
+- Email Security
+- Endpoint Security
+- Vulnerability Assessment
+- IP Reputation
+- SSL/TLS Security
+- Cloud Security
+- API Security
+- Container Security
+- Database Security
+- Patching Status
+- Compliance (PCI DSS, HIPAA, GDPR)
+- Asset Inventory
+- Team Collaboration
+- Real-time Monitoring
 
-- **DNS Health Assessment**
-  - DNSSEC validation
-  - DNS record analysis
-  - Security record validation (SPF, DMARC, DKIM)
-  - DNS misconfiguration detection
-
-- **Endpoint Security**
-  - OS fingerprinting (passive)
-  - Security headers analysis
-  - Server information gathering
-  - Security misconfiguration detection
-
-- **Vulnerability Assessment**
-  - Common vulnerability checks (passive)
-  - Security misconfiguration detection
-  - Sensitive file exposure checks
-  - Web application security analysis
-
-- **Additional Security Checks**
-  - SSL/TLS security
-  - Cloud security
-  - API security
-  - Container security
-  - Database security
-  - Patching status
-
-### Email Security Assessment
-- **Email Validation**
-  - Format validation
-  - Domain validation
-  - MX record checking
-
-- **Domain Security**
-  - SPF record validation
-  - DMARC record checking
-  - DKIM record verification
-  - MX record analysis
-
-- **Server Configuration**
-  - STARTTLS support checking
-  - SMTP authentication testing
-  - Server security headers analysis
-
-- **Security Headers**
-  - Received headers analysis
-  - SPF validation headers
-  - Authentication results checking
-
-- **Server Reputation**
-  - IP reputation via VirusTotal
-  - Domain reputation analysis
-  - Historical data tracking
-
-- **Security Best Practices**
-  - SPF implementation check
-  - DMARC implementation check
-  - DKIM implementation check
-  - STARTTLS support verification
-  - SMTP authentication requirements
-
-- **Phishing Risk Assessment**
-  - Risk score calculation
-  - Risk factor identification
-  - Security gap analysis
-
-### Slack Integration
-- **Commands**
-  - `/scan [domain]` - Scan a website
-  - `/scan --email [email]` - Scan an email address
-  - `/scan [domain] --email [email]` - Scan both website and email
-  - `/scan --profile [quick|standard|comprehensive]` - Specify scan profile
-
-- **Features**
-  - Real-time scan status updates
-  - Detailed security reports
-  - Team collaboration
-  - Historical data tracking
-  - Custom scan profiles
-
-## Architecture
-
-The tool is built with a modern microservices architecture:
-
-1. **Security Scanner API**
-   - FastAPI-based REST API
-   - Handles all security scanning logic
-   - Exposes endpoints for scan requests
-   - Manages historical data storage
-
-2. **Slack Bot**
-   - User-friendly interface
-   - Makes API calls to scanner service
-   - Formats and delivers results
-   - Handles user interactions
-
-## Prerequisites
-
-- Python 3.8+
-- Slack workspace with admin access
-- Required API keys:
-  - VirusTotal API key
-  - Slack Bot Token
-  - Slack App Token
-  - Shodan API key (for passive reconnaissance)
+### Advanced Features
+- Configuration Management (YAML)
+- Comprehensive Logging
+- PDF Report Generation
+- Continuous Monitoring
+- Change Detection
+- Alert Generation
+- API Rate Limiting
+- Caching
+- Authentication & Authorization
+- Historical Data Tracking
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/FavessssN/Security-scanner.git
-cd Security-scanner
+git clone https://github.com/yourusername/security-scanner.git
+cd security-scanner
 ```
 
-2. Create and activate a virtual environment:
+2. Create a virtual environment:
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
@@ -139,86 +56,80 @@ pip install -r requirements.txt
 4. Set up environment variables:
 ```bash
 cp .env.example .env
-# Edit .env with your API keys and configuration
+# Edit .env with your configuration
+```
+
+5. Initialize the database:
+```bash
+python -c "from security_scanner import SecurityScanner; SecurityScanner().init_database()"
+```
+
+## Configuration
+
+The scanner uses a YAML configuration file (`config.yaml`) for:
+- Scan profiles
+- API keys
+- Scan options
+- Logging settings
+
+Example configuration:
+```yaml
+scan_profiles:
+  quick:
+    vuln_scan: false
+    compliance: false
+  standard:
+    vuln_scan: true
+    compliance: true
+  comprehensive:
+    vuln_scan: true
+    compliance: true
+    cloud_check: true
 ```
 
 ## Usage
 
-### Starting the Services
-
-1. Start the Security Scanner API:
+### Command Line
 ```bash
-python security_scanner.py
+python security_scanner.py --target example.com --email user@example.com --profile standard
 ```
 
-2. Start the Slack Bot:
+### API
 ```bash
-python slack_bot.py
+curl -X POST "http://localhost:8000/scan" \
+     -H "Content-Type: application/json" \
+     -d '{"target": "example.com", "email": "user@example.com", "profile": "standard"}'
 ```
 
-### Using the Slack Bot
-
-1. Invite the bot to your Slack channel
-2. Use the following commands:
-   ```
-   /scan example.com
-   /scan --email user@example.com
-   /scan example.com --email user@example.com
-   /scan example.com --profile comprehensive
-   ```
-
-### API Usage
-
-The scanner can be used via API calls:
-
-```bash
-curl -X POST http://localhost:8000/scan \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target": "example.com",
-    "email": "user@example.com",
-    "profile": "standard"
-  }'
+### Slack Integration
+Use the `/scan` command in Slack:
+```
+/scan example.com --email user@example.com --profile standard
 ```
 
-## Output
+## Security Considerations
 
-The tool provides comprehensive reports in multiple formats:
-
-1. **Console Output**
-   - Rich text formatting
-   - Color-coded results
-   - Detailed findings
-
-2. **Slack Messages**
-   - Formatted security reports
-   - Real-time updates
-   - Interactive elements
-
-3. **Historical Data**
-   - SQLite database storage
-   - Trend analysis
-   - Asset tracking
-
-4. **Asset Inventory**
-   - Discovered assets
-   - Risk levels
-   - Security status
-
-5. **Compliance Reports**
-   - PCI DSS
-   - HIPAA
-   - GDPR
-
-## Security Notes
-
-- The tool performs passive reconnaissance only
 - No active exploitation or intrusive scanning
-- Respects rate limits and security policies
-- Uses only publicly available information
-- Safe for production environments
 - No port scanning or active service enumeration
-- Relies on public data sources and APIs
+- All scans are performed passively
+- API keys and sensitive data are stored securely
+- Rate limiting and caching implemented
+- Authentication required for API access
+
+## Logging
+
+Logs are stored in `security_scanner.log` with rotation:
+- Maximum size: 1MB
+- Backup count: 5 files
+- Log level: INFO (configurable)
+
+## Reports
+
+The scanner generates reports in multiple formats:
+- Console output (rich formatting)
+- PDF reports
+- Slack messages
+- Historical data in SQLite database
 
 ## Contributing
 
@@ -230,11 +141,4 @@ The tool provides comprehensive reports in multiple formats:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- VirusTotal for IP reputation data
-- Slack for bot integration
-- Shodan for passive reconnaissance data
-- Various security tools and libraries 
+This project is licensed under the MIT License - see the LICENSE file for details. 
