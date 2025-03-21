@@ -1,0 +1,169 @@
+Asset Inventory and Classification Guide
+======================================
+
+What is Asset Inventory?
+-----------------------
+Think of asset inventory as creating a complete list of everything your organization owns or uses online. This includes:
+- Websites and web applications
+- Email systems
+- Cloud services
+- Social media accounts
+- Mobile apps
+- Any other digital resources
+
+Our Asset Discovery Process
+--------------------------
+1. Finding Your Digital Assets
+   - Website discovery
+     * Main website
+     * Subdomains
+     * Development sites
+     * Testing environments
+   
+   - Email systems
+     * Email servers
+     * Email domains
+     * Email services
+     * Email security
+   
+   - Cloud services
+     * Cloud storage
+     * Cloud applications
+     * Cloud databases
+     * Cloud computing
+   
+   - Social media
+     * Business accounts
+     * Brand accounts
+     * Marketing accounts
+     * Support accounts
+
+2. Understanding Each Asset
+   - What it does
+   - Who uses it
+   - How important it is
+   - What data it contains
+
+3. Keeping Track
+   - Regular updates
+   - Change monitoring
+   - New asset detection
+   - Removal tracking
+
+Asset Classification
+-------------------
+1. Critical Assets (High Priority)
+   - Main business website
+   - Customer data systems
+   - Payment systems
+   - Core business applications
+   
+   Why they're critical:
+   - Essential for business operations
+   - Contains sensitive information
+   - Affects many users
+   - High business impact if compromised
+
+2. Important Assets (Medium Priority)
+   - Marketing websites
+   - Support systems
+   - Development tools
+   - Communication platforms
+   
+   Why they're important:
+   - Supports business operations
+   - Contains some sensitive data
+   - Affects some users
+   - Moderate business impact if compromised
+
+3. Supporting Assets (Lower Priority)
+   - Test environments
+   - Archive systems
+   - Backup systems
+   - Development resources
+   
+   Why they're supporting:
+   - Not critical for daily operations
+   - Contains limited sensitive data
+   - Affects few users
+   - Low business impact if compromised
+
+How We Help You
+--------------
+1. Automated Discovery
+   - Find all your digital assets
+   - Map relationships between assets
+   - Track changes over time
+   - Alert you to new assets
+
+2. Asset Classification
+   - Help determine importance
+   - Identify sensitive data
+   - Assess business impact
+   - Set security priorities
+
+3. Regular Monitoring
+   - Track asset changes
+   - Monitor security status
+   - Update classifications
+   - Alert to issues
+
+4. Clear Reporting
+   - Show all your assets
+   - Explain classifications
+   - Highlight important findings
+   - Suggest improvements
+
+Benefits of Good Asset Management
+--------------------------------
+1. Better Security
+   - Know what needs protection
+   - Focus on important assets
+   - Find security gaps
+   - Prevent problems
+
+2. Cost Savings
+   - Avoid duplicate assets
+   - Optimize resources
+   - Reduce waste
+   - Better budgeting
+
+3. Peace of Mind
+   - Complete asset list
+   - Clear priorities
+   - Regular updates
+   - Better control
+
+4. Business Value
+   - Better decision making
+   - Improved efficiency
+   - Reduced risks
+   - Better planning
+
+Getting Started
+--------------
+1. Initial Assessment
+   - List current assets
+   - Identify owners
+   - Note importance
+   - Document details
+
+2. Regular Updates
+   - Check for changes
+   - Update information
+   - Review classifications
+   - Adjust priorities
+
+3. Ongoing Management
+   - Monitor assets
+   - Track changes
+   - Update records
+   - Review security
+
+4. Continuous Improvement
+   - Find better ways
+   - Update processes
+   - Improve security
+   - Optimize resources
+
+Remember: Good asset management is an ongoing process. Regular updates and reviews help keep your organization secure and efficient. 

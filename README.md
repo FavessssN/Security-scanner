@@ -29,6 +29,20 @@ A comprehensive security assessment tool that performs passive reconnaissance an
   - Security misconfiguration detection
   - Sensitive file exposure checks
   - Web application security analysis
+  - Risk scoring and prioritization
+  - Exploitability assessment
+  - Impact analysis
+  - Remediation tracking
+  - Performance metrics (MTTD/MTTR)
+
+- **Risk Analysis**
+  - Severity-based scoring
+  - Exploitability assessment
+  - Impact analysis
+  - Risk trend tracking
+  - Historical data analysis
+  - Remediation prioritization
+  - Team responsibility assignment
 
 - **Additional Security Checks**
   - SSL/TLS security
@@ -100,12 +114,17 @@ The tool is built with a modern microservices architecture:
    - Handles all security scanning logic
    - Exposes endpoints for scan requests
    - Manages historical data storage
+   - Vulnerability tracking and analysis
+   - Risk assessment engine
+   - Performance metrics tracking
 
 2. **Slack Bot**
    - User-friendly interface
    - Makes API calls to scanner service
    - Formats and delivers results
    - Handles user interactions
+   - Real-time vulnerability alerts
+   - Remediation status updates
 
 ## Prerequisites
 
@@ -165,6 +184,9 @@ python slack_bot.py
    /scan --email user@example.com
    /scan example.com --email user@example.com
    /scan example.com --profile comprehensive
+   /scan example.com --vuln-report  # Get detailed vulnerability report
+   /scan example.com --risk-score   # Get current risk score
+   /scan example.com --remediation  # Get remediation status
    ```
 
 ### API Usage
@@ -177,7 +199,9 @@ curl -X POST http://localhost:8000/scan \
   -d '{
     "target": "example.com",
     "email": "user@example.com",
-    "profile": "standard"
+    "profile": "standard",
+    "vuln_assessment": true,
+    "risk_analysis": true
   }'
 ```
 
@@ -189,26 +213,50 @@ The tool provides comprehensive reports in multiple formats:
    - Rich text formatting
    - Color-coded results
    - Detailed findings
+   - Risk scores and trends
+   - Remediation recommendations
 
 2. **Slack Messages**
    - Formatted security reports
    - Real-time updates
    - Interactive elements
+   - Vulnerability alerts
+   - Remediation status
 
 3. **Historical Data**
    - SQLite database storage
    - Trend analysis
    - Asset tracking
+   - Vulnerability history
+   - Risk score progression
 
 4. **Asset Inventory**
    - Discovered assets
    - Risk levels
    - Security status
+   - Vulnerability mapping
+   - Remediation status
 
 5. **Compliance Reports**
    - PCI DSS
    - HIPAA
    - GDPR
+   - Vulnerability metrics
+   - Risk assessment
+
+6. **Vulnerability Reports**
+   - Detailed vulnerability findings
+   - Risk scores and impact analysis
+   - Remediation recommendations
+   - Team assignments
+   - Timeline estimates
+
+7. **Performance Metrics**
+   - Mean Time to Detect (MTTD)
+   - Mean Time to Remediate (MTTR)
+   - Vulnerability distribution
+   - Risk score trends
+   - Remediation effectiveness
 
 ## Security Notes
 
@@ -219,6 +267,8 @@ The tool provides comprehensive reports in multiple formats:
 - Safe for production environments
 - No port scanning or active service enumeration
 - Relies on public data sources and APIs
+- Non-intrusive vulnerability assessment
+- Safe testing methods
 
 ## Contributing
 
@@ -237,4 +287,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - VirusTotal for IP reputation data
 - Slack for bot integration
 - Shodan for passive reconnaissance data
-- Various security tools and libraries 
+- Various security tools and libraries
+- OWASP for vulnerability guidance
+- MITRE ATT&CK for threat modeling 

@@ -69,7 +69,10 @@ class SecurityScanner:
             'team_collaboration': {},
             'scan_profiles': {},
             'real_time_monitoring': {},
-            'historical_data': {}
+            'historical_data': {},
+            'vulnerability_metrics': {},
+            'risk_analysis': {},
+            'remediation_tracking': {}
         }
         
         # Initialize database for historical data
@@ -120,7 +123,13 @@ class SecurityScanner:
                 vuln_type TEXT,
                 description TEXT,
                 severity TEXT,
-                discovery_date DATETIME
+                exploitability TEXT,
+                impact TEXT,
+                discovery_date DATETIME,
+                remediation_date DATETIME,
+                status TEXT,
+                risk_score INTEGER,
+                remediation_notes TEXT
             )
         ''')
         
@@ -131,6 +140,29 @@ class SecurityScanner:
                 asset_type TEXT,
                 details TEXT,
                 discovery_date DATETIME
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS remediation_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vuln_id INTEGER,
+                action_taken TEXT,
+                action_date DATETIME,
+                action_by TEXT,
+                status TEXT,
+                notes TEXT,
+                FOREIGN KEY (vuln_id) REFERENCES vulnerabilities (id)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date DATETIME,
+                metric_type TEXT,
+                value REAL,
+                target TEXT
             )
         ''')
         
@@ -327,7 +359,7 @@ class SecurityScanner:
         self.results['endpoint_security'] = endpoint_info
 
     async def assess_vulnerability(self) -> None:
-        """Perform vulnerability assessment"""
+        """Perform vulnerability assessment with risk analysis"""
         if not self.target:
             return
             
@@ -335,7 +367,10 @@ class SecurityScanner:
         
         vulnerability_info = {
             'common_vulnerabilities': [],
-            'security_issues': []
+            'security_issues': [],
+            'risk_analysis': {},
+            'remediation_priorities': [],
+            'metrics': {}
         }
         
         try:
@@ -360,7 +395,10 @@ class SecurityScanner:
                         vulnerabilities.append({
                             'type': 'XSS',
                             'payload': payload,
-                            'severity': 'High'
+                            'severity': 'High',
+                            'exploitability': 'Easy',
+                            'impact': 'Data theft, session hijacking',
+                            'risk_score': self.calculate_risk_score('XSS', 'High', 'Easy', 'Data theft, session hijacking')
                         })
                 except:
                     continue
@@ -383,29 +421,334 @@ class SecurityScanner:
                         vulnerabilities.append({
                             'type': 'SQL Injection',
                             'payload': payload,
-                            'severity': 'Critical'
+                            'severity': 'Critical',
+                            'exploitability': 'Easy',
+                            'impact': 'Data breach, unauthorized access',
+                            'risk_score': self.calculate_risk_score('SQL Injection', 'Critical', 'Easy', 'Data breach, unauthorized access')
                         })
                 except:
                     continue
                     
             vulnerability_info['common_vulnerabilities'] = vulnerabilities
             
-            # Check for security issues
-            security_issues = []
+            # Perform risk analysis
+            risk_analysis = {
+                'total_vulnerabilities': len(vulnerabilities),
+                'severity_distribution': self.calculate_severity_distribution(vulnerabilities),
+                'exploitability_distribution': self.calculate_exploitability_distribution(vulnerabilities),
+                'impact_analysis': self.analyze_impact(vulnerabilities),
+                'risk_trends': self.analyze_risk_trends()
+            }
             
-            # Check for exposed sensitive data
-            if any(sensitive in str(vulnerability).lower() for sensitive in ['password', 'key', 'secret']):
-                security_issues.append({
-                    'type': 'Sensitive Data Exposure',
-                    'severity': 'High'
-                })
+            vulnerability_info['risk_analysis'] = risk_analysis
             
-            vulnerability_info['security_issues'] = security_issues
+            # Prioritize remediation
+            vulnerability_info['remediation_priorities'] = self.prioritize_remediation(vulnerabilities)
+            
+            # Calculate metrics
+            vulnerability_info['metrics'] = self.calculate_vulnerability_metrics(vulnerabilities)
             
         except Exception as e:
             self.console.print(f"[yellow]Warning: Vulnerability assessment error: {str(e)}[/yellow]")
             
         self.results['vulnerability_assessment'] = vulnerability_info
+
+    def calculate_risk_score(self, vuln_type: str, severity: str, exploitability: str, impact: str) -> int:
+        """Calculate risk score for a vulnerability"""
+        score = 0
+        
+        # Severity scoring
+        severity_scores = {
+            'Critical': 10,
+            'High': 7,
+            'Medium': 4,
+            'Low': 1
+        }
+        score += severity_scores.get(severity, 0)
+        
+        # Exploitability scoring
+        exploitability_scores = {
+            'Easy': 5,
+            'Moderate': 3,
+            'Difficult': 1
+        }
+        score += exploitability_scores.get(exploitability, 0)
+        
+        # Impact scoring
+        if 'data breach' in impact.lower():
+            score += 5
+        if 'unauthorized access' in impact.lower():
+            score += 4
+        if 'data theft' in impact.lower():
+            score += 3
+        if 'session hijacking' in impact.lower():
+            score += 2
+            
+        return min(score, 20)  # Cap at 20
+
+    def calculate_severity_distribution(self, vulnerabilities: List[Dict]) -> Dict:
+        """Calculate distribution of vulnerability severities"""
+        distribution = {
+            'Critical': 0,
+            'High': 0,
+            'Medium': 0,
+            'Low': 0
+        }
+        
+        for vuln in vulnerabilities:
+            severity = vuln.get('severity', 'Unknown')
+            if severity in distribution:
+                distribution[severity] += 1
+                
+        return distribution
+
+    def calculate_exploitability_distribution(self, vulnerabilities: List[Dict]) -> Dict:
+        """Calculate distribution of vulnerability exploitability"""
+        distribution = {
+            'Easy': 0,
+            'Moderate': 0,
+            'Difficult': 0
+        }
+        
+        for vuln in vulnerabilities:
+            exploitability = vuln.get('exploitability', 'Unknown')
+            if exploitability in distribution:
+                distribution[exploitability] += 1
+                
+        return distribution
+
+    def analyze_impact(self, vulnerabilities: List[Dict]) -> Dict:
+        """Analyze potential impact of vulnerabilities"""
+        impact_analysis = {
+            'data_breach_risk': 0,
+            'unauthorized_access_risk': 0,
+            'data_theft_risk': 0,
+            'session_hijacking_risk': 0,
+            'service_disruption_risk': 0
+        }
+        
+        for vuln in vulnerabilities:
+            impact = vuln.get('impact', '').lower()
+            if 'data breach' in impact:
+                impact_analysis['data_breach_risk'] += 1
+            if 'unauthorized access' in impact:
+                impact_analysis['unauthorized_access_risk'] += 1
+            if 'data theft' in impact:
+                impact_analysis['data_theft_risk'] += 1
+            if 'session hijacking' in impact:
+                impact_analysis['session_hijacking_risk'] += 1
+            if 'service disruption' in impact:
+                impact_analysis['service_disruption_risk'] += 1
+                
+        return impact_analysis
+
+    def analyze_risk_trends(self) -> Dict:
+        """Analyze vulnerability risk trends over time"""
+        try:
+            conn = sqlite3.connect('security_scanner.db')
+            cursor = conn.cursor()
+            
+            # Get historical vulnerability data
+            cursor.execute('''
+                SELECT discovery_date, severity, risk_score
+                FROM vulnerabilities
+                WHERE target = ?
+                ORDER BY discovery_date DESC
+                LIMIT 30
+            ''', (self.target,))
+            
+            historical_data = cursor.fetchall()
+            
+            trends = {
+                'severity_trend': [],
+                'risk_score_trend': [],
+                'vulnerability_count_trend': []
+            }
+            
+            for date, severity, risk_score in historical_data:
+                trends['severity_trend'].append({
+                    'date': date,
+                    'severity': severity
+                })
+                trends['risk_score_trend'].append({
+                    'date': date,
+                    'risk_score': risk_score
+                })
+                
+            conn.close()
+            return trends
+            
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: Risk trend analysis error: {str(e)}[/yellow]")
+            return {}
+
+    def prioritize_remediation(self, vulnerabilities: List[Dict]) -> List[Dict]:
+        """Prioritize vulnerabilities for remediation"""
+        # Sort vulnerabilities by risk score
+        sorted_vulns = sorted(vulnerabilities, key=lambda x: x.get('risk_score', 0), reverse=True)
+        
+        priorities = []
+        for vuln in sorted_vulns:
+            priority = {
+                'vulnerability': vuln,
+                'priority_level': self.determine_priority_level(vuln),
+                'recommended_timeline': self.determine_remediation_timeline(vuln),
+                'responsible_team': self.determine_responsible_team(vuln)
+            }
+            priorities.append(priority)
+            
+        return priorities
+
+    def determine_priority_level(self, vuln: Dict) -> str:
+        """Determine priority level for remediation"""
+        risk_score = vuln.get('risk_score', 0)
+        
+        if risk_score >= 15:
+            return 'Critical'
+        elif risk_score >= 10:
+            return 'High'
+        elif risk_score >= 5:
+            return 'Medium'
+        else:
+            return 'Low'
+
+    def determine_remediation_timeline(self, vuln: Dict) -> str:
+        """Determine recommended remediation timeline"""
+        priority = self.determine_priority_level(vuln)
+        
+        timelines = {
+            'Critical': '24 hours',
+            'High': '72 hours',
+            'Medium': '1 week',
+            'Low': '1 month'
+        }
+        
+        return timelines.get(priority, '1 month')
+
+    def determine_responsible_team(self, vuln: Dict) -> str:
+        """Determine responsible team for remediation"""
+        vuln_type = vuln.get('type', '').lower()
+        
+        if 'xss' in vuln_type or 'injection' in vuln_type:
+            return 'Development Team'
+        elif 'ssl' in vuln_type or 'certificate' in vuln_type:
+            return 'Infrastructure Team'
+        elif 'access' in vuln_type or 'authentication' in vuln_type:
+            return 'Security Team'
+        else:
+            return 'IT Operations'
+
+    def calculate_vulnerability_metrics(self, vulnerabilities: List[Dict]) -> Dict:
+        """Calculate vulnerability metrics"""
+        metrics = {
+            'total_vulnerabilities': len(vulnerabilities),
+            'critical_vulnerabilities': len([v for v in vulnerabilities if v.get('severity') == 'Critical']),
+            'high_vulnerabilities': len([v for v in vulnerabilities if v.get('severity') == 'High']),
+            'medium_vulnerabilities': len([v for v in vulnerabilities if v.get('severity') == 'Medium']),
+            'low_vulnerabilities': len([v for v in vulnerabilities if v.get('severity') == 'Low']),
+            'average_risk_score': sum(v.get('risk_score', 0) for v in vulnerabilities) / len(vulnerabilities) if vulnerabilities else 0,
+            'mttd': self.calculate_mttd(),
+            'mttr': self.calculate_mttr()
+        }
+        
+        return metrics
+
+    def calculate_mttd(self) -> float:
+        """Calculate Mean Time to Detect (MTTD)"""
+        try:
+            conn = sqlite3.connect('security_scanner.db')
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT AVG(JULIANDAY(remediation_date) - JULIANDAY(discovery_date))
+                FROM vulnerabilities
+                WHERE target = ? AND remediation_date IS NOT NULL
+            ''', (self.target,))
+            
+            mttd = cursor.fetchone()[0] or 0
+            conn.close()
+            
+            return mttd
+            
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: MTTD calculation error: {str(e)}[/yellow]")
+            return 0
+
+    def calculate_mttr(self) -> float:
+        """Calculate Mean Time to Remediate (MTTR)"""
+        try:
+            conn = sqlite3.connect('security_scanner.db')
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT AVG(JULIANDAY(remediation_date) - JULIANDAY(discovery_date))
+                FROM vulnerabilities
+                WHERE target = ? AND status = 'Remediated'
+            ''', (self.target,))
+            
+            mttr = cursor.fetchone()[0] or 0
+            conn.close()
+            
+            return mttr
+            
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: MTTR calculation error: {str(e)}[/yellow]")
+            return 0
+
+    def generate_remediation_report(self) -> str:
+        """Generate a detailed remediation report"""
+        report = f"""
+Vulnerability Remediation Report
+===============================
+Target: {self.target}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Executive Summary
+----------------
+Total Vulnerabilities: {self.results['vulnerability_assessment']['metrics']['total_vulnerabilities']}
+Critical Vulnerabilities: {self.results['vulnerability_assessment']['metrics']['critical_vulnerabilities']}
+High Vulnerabilities: {self.results['vulnerability_assessment']['metrics']['high_vulnerabilities']}
+Average Risk Score: {self.results['vulnerability_assessment']['metrics']['average_risk_score']:.2f}
+
+Risk Analysis
+------------
+Severity Distribution:
+{self.format_distribution(self.results['vulnerability_assessment']['risk_analysis']['severity_distribution'])}
+
+Exploitability Distribution:
+{self.format_distribution(self.results['vulnerability_assessment']['risk_analysis']['exploitability_distribution'])}
+
+Impact Analysis:
+{self.format_impact_analysis(self.results['vulnerability_assessment']['risk_analysis']['impact_analysis'])}
+
+Performance Metrics
+-----------------
+Mean Time to Detect (MTTD): {self.results['vulnerability_assessment']['metrics']['mttd']:.2f} days
+Mean Time to Remediate (MTTR): {self.results['vulnerability_assessment']['metrics']['mttr']:.2f} days
+
+Remediation Priorities
+--------------------
+"""
+        
+        for priority in self.results['vulnerability_assessment']['remediation_priorities']:
+            report += f"""
+Vulnerability: {priority['vulnerability']['type']}
+Priority Level: {priority['priority_level']}
+Timeline: {priority['recommended_timeline']}
+Responsible Team: {priority['responsible_team']}
+Risk Score: {priority['vulnerability']['risk_score']}
+Impact: {priority['vulnerability']['impact']}
+"""
+            
+        return report
+
+    def format_distribution(self, distribution: Dict) -> str:
+        """Format distribution data for report"""
+        return "\n".join(f"{k}: {v}" for k, v in distribution.items())
+
+    def format_impact_analysis(self, impact: Dict) -> str:
+        """Format impact analysis data for report"""
+        return "\n".join(f"{k.replace('_', ' ').title()}: {v}" for k, v in impact.items())
 
     async def assess_ip_reputation(self) -> None:
         """Perform IP reputation assessment"""
@@ -758,7 +1101,13 @@ class SecurityScanner:
         asset_info = {
             'discovered_assets': [],
             'asset_types': {},
-            'risk_levels': {}
+            'risk_levels': {},
+            'criticality': {},
+            'sensitivity': {},
+            'business_impact': {},
+            'asset_relationships': {},
+            'asset_owners': {},
+            'asset_status': {}
         }
         
         try:
@@ -766,20 +1115,24 @@ class SecurityScanner:
             assets = []
             
             # Network assets
-            if self.results['network_security'].get('port_scan'):
-                for service in self.results['network_security']['port_scan']['services']:
+            if self.results['network_security'].get('passive_port_info'):
+                for service in self.results['network_security']['passive_port_info'].get('services', []):
                     assets.append({
                         'type': 'Network Service',
-                        'name': service['name'],
-                        'port': service['port'],
-                        'version': service['version']
+                        'name': service.get('name', 'Unknown'),
+                        'port': service.get('port', 'Unknown'),
+                        'version': service.get('version', 'Unknown'),
+                        'protocol': service.get('protocol', 'Unknown'),
+                        'status': 'Active'
                     })
                     
             # Web assets
             if self.results['endpoint_security'].get('security_headers'):
                 assets.append({
                     'type': 'Web Application',
-                    'headers': self.results['endpoint_security']['security_headers']
+                    'name': self.target,
+                    'headers': self.results['endpoint_security']['security_headers'],
+                    'status': 'Active'
                 })
                 
             # Cloud assets
@@ -787,8 +1140,19 @@ class SecurityScanner:
                 for issue in self.results['cloud_security']['issues']:
                     assets.append({
                         'type': 'Cloud Service',
-                        'issue': issue
+                        'name': issue.get('service', 'Unknown'),
+                        'issue': issue.get('description', 'Unknown'),
+                        'status': 'Active'
                     })
+                    
+            # Email assets
+            if self.results['email_security']:
+                assets.append({
+                    'type': 'Email Service',
+                    'name': self.email,
+                    'domain': self.email.split('@')[1] if self.email else None,
+                    'status': 'Active'
+                })
                     
             # Categorize assets
             for asset in assets:
@@ -797,10 +1161,26 @@ class SecurityScanner:
                     asset_info['asset_types'][asset_type] = []
                 asset_info['asset_types'][asset_type].append(asset)
                 
-            # Calculate risk levels
+            # Calculate risk levels and criticality
             for asset_type, asset_list in asset_info['asset_types'].items():
                 risk_level = self.calculate_asset_risk(asset_list)
+                criticality = self.calculate_asset_criticality(asset_list)
+                sensitivity = self.calculate_asset_sensitivity(asset_list)
+                business_impact = self.calculate_business_impact(asset_list)
+                
                 asset_info['risk_levels'][asset_type] = risk_level
+                asset_info['criticality'][asset_type] = criticality
+                asset_info['sensitivity'][asset_type] = sensitivity
+                asset_info['business_impact'][asset_type] = business_impact
+                
+            # Map asset relationships
+            asset_info['asset_relationships'] = self.map_asset_relationships(assets)
+            
+            # Assign asset owners
+            asset_info['asset_owners'] = self.assign_asset_owners(assets)
+            
+            # Update asset status
+            asset_info['asset_status'] = self.update_asset_status(assets)
                 
         except Exception as e:
             self.console.print(f"[yellow]Warning: Asset management error: {str(e)}[/yellow]")
@@ -830,6 +1210,150 @@ class SecurityScanner:
             return 'Medium'
         else:
             return 'Low'
+
+    def calculate_asset_criticality(self, assets: List[Dict]) -> str:
+        """Calculate criticality level for a group of assets"""
+        criticality_score = 0
+        
+        for asset in assets:
+            # Check for critical services
+            if asset['type'] in ['Web Application', 'Email Service', 'Database Service']:
+                criticality_score += 3
+                
+            # Check for production systems
+            if 'prod' in str(asset).lower() or 'production' in str(asset).lower():
+                criticality_score += 2
+                
+            # Check for customer-facing services
+            if 'customer' in str(asset).lower() or 'client' in str(asset).lower():
+                criticality_score += 2
+                
+            # Check for financial services
+            if 'payment' in str(asset).lower() or 'financial' in str(asset).lower():
+                criticality_score += 3
+                
+        if criticality_score >= 8:
+            return 'Critical'
+        elif criticality_score >= 5:
+            return 'High'
+        elif criticality_score >= 3:
+            return 'Medium'
+        else:
+            return 'Low'
+
+    def calculate_asset_sensitivity(self, assets: List[Dict]) -> str:
+        """Calculate sensitivity level for a group of assets"""
+        sensitivity_score = 0
+        
+        for asset in assets:
+            # Check for sensitive data
+            if any(sensitive in str(asset).lower() for sensitive in ['password', 'key', 'secret', 'personal', 'private']):
+                sensitivity_score += 3
+                
+            # Check for regulated data
+            if any(regulated in str(asset).lower() for regulated in ['hipaa', 'pci', 'gdpr', 'compliance']):
+                sensitivity_score += 2
+                
+            # Check for customer data
+            if 'customer' in str(asset).lower() or 'user' in str(asset).lower():
+                sensitivity_score += 2
+                
+        if sensitivity_score >= 5:
+            return 'High'
+        elif sensitivity_score >= 3:
+            return 'Medium'
+        else:
+            return 'Low'
+
+    def calculate_business_impact(self, assets: List[Dict]) -> str:
+        """Calculate business impact level for a group of assets"""
+        impact_score = 0
+        
+        for asset in assets:
+            # Check for revenue impact
+            if 'payment' in str(asset).lower() or 'sales' in str(asset).lower():
+                impact_score += 3
+                
+            # Check for customer impact
+            if 'customer' in str(asset).lower() or 'user' in str(asset).lower():
+                impact_score += 2
+                
+            # Check for operational impact
+            if 'operation' in str(asset).lower() or 'service' in str(asset).lower():
+                impact_score += 2
+                
+        if impact_score >= 5:
+            return 'High'
+        elif impact_score >= 3:
+            return 'Medium'
+        else:
+            return 'Low'
+
+    def map_asset_relationships(self, assets: List[Dict]) -> Dict:
+        """Map relationships between assets"""
+        relationships = {}
+        
+        for asset in assets:
+            asset_name = asset.get('name', 'Unknown')
+            relationships[asset_name] = {
+                'dependencies': [],
+                'connected_to': [],
+                'depends_on': []
+            }
+            
+            # Map dependencies based on asset type
+            if asset['type'] == 'Web Application':
+                relationships[asset_name]['dependencies'].extend([
+                    {'type': 'Database Service', 'name': 'Database'},
+                    {'type': 'Email Service', 'name': 'Email System'}
+                ])
+                
+            elif asset['type'] == 'Email Service':
+                relationships[asset_name]['dependencies'].extend([
+                    {'type': 'DNS Service', 'name': 'DNS'},
+                    {'type': 'Security Service', 'name': 'Security Gateway'}
+                ])
+                
+        return relationships
+
+    def assign_asset_owners(self, assets: List[Dict]) -> Dict:
+        """Assign owners to assets based on type and criticality"""
+        owners = {}
+        
+        for asset in assets:
+            asset_name = asset.get('name', 'Unknown')
+            owners[asset_name] = {
+                'primary_owner': 'System Administrator',
+                'secondary_owner': 'Security Team',
+                'department': 'IT',
+                'contact': 'admin@example.com'
+            }
+            
+            # Adjust ownership based on asset type and criticality
+            if asset['type'] in ['Web Application', 'Email Service']:
+                owners[asset_name]['primary_owner'] = 'Application Team'
+                owners[asset_name]['department'] = 'Development'
+                
+        return owners
+
+    def update_asset_status(self, assets: List[Dict]) -> Dict:
+        """Update status of assets based on various factors"""
+        status = {}
+        
+        for asset in assets:
+            asset_name = asset.get('name', 'Unknown')
+            status[asset_name] = {
+                'operational_status': 'Active',
+                'last_scan': datetime.now().isoformat(),
+                'health_status': 'Healthy',
+                'maintenance_status': 'None'
+            }
+            
+            # Update status based on issues
+            if any(issue in str(asset).lower() for issue in ['error', 'failed', 'down']):
+                status[asset_name]['health_status'] = 'Unhealthy'
+                
+        return status
 
     async def enable_team_collaboration(self) -> None:
         """Enable team collaboration features"""
