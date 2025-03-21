@@ -1,135 +1,240 @@
 # Enhanced Attack Surface Assessment Tool
 
-A comprehensive security assessment tool that evaluates various aspects of a target system's security posture, including network security, DNS health, patching status, endpoint security, IP reputation, application security, information leakage, and social engineering risks.
+A comprehensive security assessment tool that performs passive reconnaissance and security checks on websites and email addresses. The tool is designed to be non-intrusive while providing detailed security insights.
 
 ## Features
 
-The security scanner performs the following assessments:
-
-1. **Network Security**
-   - Port scanning
-   - Service enumeration
-   - OS detection
-   - Network service identification
+### Website Security Assessment
+- **Network Security**
+  - Passive DNS analysis
+  - WHOIS information gathering
+  - IP reputation checking
+  - ASN information collection
+  - Passive port and service enumeration via Shodan
 
 - **DNS Health Assessment**
   - DNSSEC validation
-  - DNS record analysis (A, AAAA, MX, NS, TXT, SOA, CAA)
-  - DNS security best practices check
+  - DNS record analysis
+  - Security record validation (SPF, DMARC, DKIM)
+  - DNS misconfiguration detection
 
-- **Patching Status Assessment**
-  - Known vulnerability scanning
-  - CVE database integration
-  - Version checking
-  - Patch status reporting
-
-- **Endpoint Security Assessment**
-  - Shodan integration for exposed services
-  - Vulnerability scanning
-  - Service enumeration
+- **Endpoint Security**
+  - OS fingerprinting (passive)
+  - Security headers analysis
+  - Server information gathering
   - Security misconfiguration detection
 
-- **IP Reputation Assessment**
-  - VirusTotal integration
-  - Malware scanning
-  - Reputation checking
-  - Historical data analysis
+- **Vulnerability Assessment**
+  - Common vulnerability checks (passive)
+  - Security misconfiguration detection
+  - Sensitive file exposure checks
+  - Web application security analysis
 
-- **Application Security Assessment**
-  - Security headers analysis
-  - Web vulnerability scanning
-  - SSL/TLS configuration check
-  - Security best practices validation
+- **Additional Security Checks**
+  - SSL/TLS security
+  - Cloud security
+  - API security
+  - Container security
+  - Database security
+  - Patching status
 
-- **Information Leakage Assessment**
-  - Sensitive file detection
-  - Directory traversal testing
-  - Information disclosure checks
-  - Robots.txt analysis
+### Email Security Assessment
+- **Email Validation**
+  - Format validation
+  - Domain validation
+  - MX record checking
 
-- **Social Engineering Assessment**
-  - Email security (SPF, DKIM, DMARC)
-  - Social media presence analysis
-  - Information exposure checks
-  - Security awareness indicators
+- **Domain Security**
+  - SPF record validation
+  - DMARC record checking
+  - DKIM record verification
+  - MX record analysis
 
-- **Slack Integration**
-  - Automated report delivery
-  - Real-time notifications
-  - Customizable reporting
-  - Team collaboration features
+- **Server Configuration**
+  - STARTTLS support checking
+  - SMTP authentication testing
+  - Server security headers analysis
+
+- **Security Headers**
+  - Received headers analysis
+  - SPF validation headers
+  - Authentication results checking
+
+- **Server Reputation**
+  - IP reputation via VirusTotal
+  - Domain reputation analysis
+  - Historical data tracking
+
+- **Security Best Practices**
+  - SPF implementation check
+  - DMARC implementation check
+  - DKIM implementation check
+  - STARTTLS support verification
+  - SMTP authentication requirements
+
+- **Phishing Risk Assessment**
+  - Risk score calculation
+  - Risk factor identification
+  - Security gap analysis
+
+### Slack Integration
+- **Commands**
+  - `/scan [domain]` - Scan a website
+  - `/scan --email [email]` - Scan an email address
+  - `/scan [domain] --email [email]` - Scan both website and email
+  - `/scan --profile [quick|standard|comprehensive]` - Specify scan profile
+
+- **Features**
+  - Real-time scan status updates
+  - Detailed security reports
+  - Team collaboration
+  - Historical data tracking
+  - Custom scan profiles
+
+## Architecture
+
+The tool is built with a modern microservices architecture:
+
+1. **Security Scanner API**
+   - FastAPI-based REST API
+   - Handles all security scanning logic
+   - Exposes endpoints for scan requests
+   - Manages historical data storage
+
+2. **Slack Bot**
+   - User-friendly interface
+   - Makes API calls to scanner service
+   - Formats and delivers results
+   - Handles user interactions
 
 ## Prerequisites
 
-- Python 3.7 or higher
-- Nmap installed on your system
-  - On macOS: `brew install nmap`
-  - On Ubuntu/Debian: `sudo apt-get install nmap`
-  - On Windows: Download from [Nmap's official website](https://nmap.org/download.html)
+- Python 3.8+
+- Slack workspace with admin access
+- Required API keys:
+  - VirusTotal API key
+  - Slack Bot Token
+  - Slack App Token
+  - Shodan API key (for passive reconnaissance)
 
 ## Installation
 
-1. Clone this repository:
+1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd attack-surface-scanner
+git clone https://github.com/FavessssN/Security-scanner.git
+cd Security-scanner
 ```
 
-2. Install the required Python packages:
+2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Set up environment variables:
+4. Set up environment variables:
 ```bash
 cp .env.example .env
+# Edit .env with your API keys and configuration
 ```
-Edit the `.env` file with your API keys and Slack configuration.
-
-## API Keys Required
-
-- Shodan API Key: [Get it here](https://account.shodan.io/register)
-- VirusTotal API Key: [Get it here](https://www.virustotal.com/gui/join-us)
-- Slack Bot Token: [Create a Slack App](https://api.slack.com/apps)
 
 ## Usage
 
-Basic usage:
+### Starting the Services
+
+1. Start the Security Scanner API:
 ```bash
-python security_scanner.py example.com
+python security_scanner.py
 ```
 
-Specify a custom port range:
+2. Start the Slack Bot:
 ```bash
-python security_scanner.py example.com --ports 1-65535
+python slack_bot.py
+```
+
+### Using the Slack Bot
+
+1. Invite the bot to your Slack channel
+2. Use the following commands:
+   ```
+   /scan example.com
+   /scan --email user@example.com
+   /scan example.com --email user@example.com
+   /scan example.com --profile comprehensive
+   ```
+
+### API Usage
+
+The scanner can be used via API calls:
+
+```bash
+curl -X POST http://localhost:8000/scan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "example.com",
+    "email": "user@example.com",
+    "profile": "standard"
+  }'
 ```
 
 ## Output
 
-The tool generates comprehensive reports in two formats:
-1. Console output with formatted tables and panels
-2. Slack messages with categorized findings
+The tool provides comprehensive reports in multiple formats:
 
-## Security Note
+1. **Console Output**
+   - Rich text formatting
+   - Color-coded results
+   - Detailed findings
 
-This tool is intended for legitimate security assessment purposes only. Always ensure you have proper authorization before scanning any systems or domains.
+2. **Slack Messages**
+   - Formatted security reports
+   - Real-time updates
+   - Interactive elements
+
+3. **Historical Data**
+   - SQLite database storage
+   - Trend analysis
+   - Asset tracking
+
+4. **Asset Inventory**
+   - Discovered assets
+   - Risk levels
+   - Security status
+
+5. **Compliance Reports**
+   - PCI DSS
+   - HIPAA
+   - GDPR
+
+## Security Notes
+
+- The tool performs passive reconnaissance only
+- No active exploitation or intrusive scanning
+- Respects rate limits and security policies
+- Uses only publicly available information
+- Safe for production environments
+- No port scanning or active service enumeration
+- Relies on public data sources and APIs
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-MIT License
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
-- Nmap for network scanning capabilities
-- Shodan for internet-wide scanning data
-- VirusTotal for malware and reputation data
-- NVD for vulnerability database
-- Slack for messaging platform 
+- VirusTotal for IP reputation data
+- Slack for bot integration
+- Shodan for passive reconnaissance data
+- Various security tools and libraries 

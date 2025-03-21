@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -24,6 +23,7 @@ wheels/
 # Virtual Environment
 venv/
 ENV/
+env/
 .env
 
 # IDE
@@ -32,12 +32,27 @@ ENV/
 *.swp
 *.swo
 
-# Logs
+# Project specific
+security_scanner.db
 *.log
+.DS_Store
+
+# API Keys and Secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
 logs/
+*.log
 
 # Local development
-.DS_Store
 .env.local
 .env.development.local
 .env.test.local
