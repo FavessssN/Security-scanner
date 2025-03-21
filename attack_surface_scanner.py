@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import nmap
 import dns.resolver
 import requests
 import ssl
@@ -26,23 +25,23 @@ class AttackSurfaceScanner:
             'vulnerabilities': []
         }
 
-    def port_scan(self, ports: str = "1-1024") -> None:
-        """Perform port scanning using nmap"""
-        self.console.print(f"[bold blue]Starting port scan on {self.target}...[/bold blue]")
-        scanner = nmap.PortScanner()
-        scanner.scan(self.target, ports)
+##    def port_scan(self, ports: str = "1-1024") -> None:
+  #      """Perform port scanning using nmap"""
+  #      self.console.print(f"[bold blue]Starting port scan on {self.target}...[/bold blue]")
+     #   scanner = nmap.PortScanner()
+      #  scanner.scan(self.target, ports)
         
-        for host in scanner.all_hosts():
-            for proto in scanner[host].all_protocols():
-                ports = scanner[host][proto].keys()
-                for port in ports:
-                    state = scanner[host][proto][port]['state']
-                    service = scanner[host][proto][port]['name']
-                    self.results['ports'].append({
-                        'port': port,
-                        'state': state,
-                        'service': service
-                    })
+       # for host in scanner.all_hosts():
+        #    for proto in scanner[host].all_protocols():
+         #       ports = scanner[host][proto].keys()
+          #      for port in ports:
+           #         state = scanner[host][proto][port]['state']
+            #        service = scanner[host][proto][port]['name']
+             #       self.results['ports'].append({
+              #          'port': port,
+               #         'state': state,
+                #        'service': service
+                    })#
 
     def dns_scan(self) -> None:
         """Perform DNS reconnaissance"""
