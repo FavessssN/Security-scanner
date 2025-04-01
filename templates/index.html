@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Scanner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-blue: #2563eb;
+            --primary-light: #3b82f6;
+            --primary-dark: #1d4ed8;
+            --accent-blue: #60a5fa;
+            --light-blue: #dbeafe;
+            --white: #ffffff;
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --red-500: #ef4444;
+            --green-500: #22c55e;
+            --yellow-500: #eab308;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, var(--gray-50) 0%, var(--light-blue) 100%);
+            min-height: 100vh;
+            color: var(--gray-800);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: var(--primary-blue);
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+
+        .header p {
+            color: var(--gray-700);
+            font-size: 1.1rem;
+        }
+
+        .card {
+            background: var(--white);
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--gray-700);
+            font-weight: 500;
+        }
+
+        .input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 2px solid var(--gray-200);
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 3px var(--light-blue);
+        }
+
+        .btn {
+            background: var(--primary-blue);
+            color: var(--white);
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-secondary {
+            background: var(--gray-700);
+        }
+
+        .btn-secondary:hover {
+            background: var(--gray-800);
+        }
+
+        .loading {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .spinner {
+            width: 3.5rem;
+            height: 3.5rem;
+            border: 4px solid var(--light-blue);
+            border-top-color: var(--primary-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .loading .text-white {
+            color: var(--white);
+            font-size: 1.25rem;
+            margin-top: 1rem;
+            font-weight: 500;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .metric-card {
+            background: var(--white);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-label {
+            color: var(--gray-700);
+            font-size: 0.875rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--gray-800);
+        }
+
+        .status {
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-good {
+            background: var(--light-blue);
+            color: var(--primary-blue);
+        }
+
+        .status-warning {
+            background: #fef3c7;
+            color: var(--yellow-500);
+        }
+
+        .status-critical {
+            background: #fee2e2;
+            color: var(--red-500);
+        }
+
+        .issue {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid;
+        }
+
+        .issue.critical {
+            background: #fee2e2;
+            border-left-color: var(--red-500);
+            color: #991b1b;
+        }
+
+        .issue.high {
+            background: #fef3c7;
+            border-left-color: var(--yellow-500);
+            color: #92400e;
+        }
+
+        .issue.medium {
+            background: #dbeafe;
+            border-left-color: var(--accent-blue);
+            color: #1e40af;
+        }
+
+        .issue.low {
+            background: #dcfce7;
+            border-left-color: var(--green-500);
+            color: #166534;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Security Scanner</h1>
+            <p>Comprehensive security assessment for your domain or IP address</p>
+        </header>
+
+        <div class="card">
+            <form id="scanForm">
+                <div class="form-group">
+                    <label for="target">Target Domain/IP</label>
+                    <input type="text" id="target" name="target" class="input" placeholder="example.com or 192.168.1.1" required>
+                </div>
+                <div class="form-group">
+                    <label for="email">Email (Optional)</label>
+                    <input type="email" id="email" name="email" class="input" placeholder="example@domain.com">
+                </div>
+                <div class="form-group">
+                    <label for="profile">Scan Profile</label>
+                    <select id="profile" name="profile" class="input">
+                        <option value="quick">Quick Scan</option>
+                        <option value="standard" selected>Standard Scan</option>
+                        <option value="comprehensive">Comprehensive Scan</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <button type="submit" class="btn">Start Scan</button>
+                    <button type="button" id="downloadReport" class="btn btn-secondary" disabled>Download Report</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+        </div>
+
+        <div id="results" class="hidden">
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">Scan Summary</h2>
+                    <div class="status" id="overallStatus">Status: Running</div>
+                </div>
+                <div class="results-grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="totalIssues">0</div>
+                        <div class="metric-label">Total Issues</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="criticalIssues">0</div>
+                        <div class="metric-label">Critical Issues</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="riskScore">0%</div>
+                        <div class="metric-label">Risk Score</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">Network Security</h2>
+                    <div class="status" id="networkStatus">Status: Running</div>
+                </div>
+                <div id="networkSecurity"></div>
+            </div>
+
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">IP Scanner</h2>
+                    <div class="status" id="ipStatus">Status: Running</div>
+                </div>
+                <div id="ipScanner"></div>
+            </div>
+
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">DNS Health</h2>
+                    <div class="status" id="dnsStatus">Status: Running</div>
+                </div>
+                <div id="dnsHealth"></div>
+            </div>
+
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">SSL/TLS Security</h2>
+                    <div class="status" id="sslStatus">Status: Running</div>
+                </div>
+                <div id="sslSecurity"></div>
+            </div>
+
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">Endpoint Security</h2>
+                    <div class="status" id="endpointStatus">Status: Running</div>
+                </div>
+                <div id="endpointSecurity"></div>
+            </div>
+
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">Email Security</h2>
+                    <div class="status" id="emailStatus">Status: Running</div>
+                </div>
+                <div id="emailSecurity"></div>
+            </div>
+
+            <div class="card">
+                <div class="section-header">
+                    <h2 class="section-title">Vulnerabilities</h2>
+                    <div class="status" id="vulnStatus">Status: Running</div>
+                </div>
+                <div id="vulnerabilities"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let scanResults = null;
+
+        document.getElementById('scanForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const downloadBtn = document.getElementById('downloadReport');
+            const target = document.getElementById('target').value;
+            
+            // Show loading state
+            loading.classList.remove('hidden');
+            results.classList.add('hidden');
+            downloadBtn.disabled = true;
+            
+            // Reset all status indicators
+            document.querySelectorAll('.status').forEach(status => {
+                status.textContent = 'Status: Running';
+                status.className = 'status status-warning';
+            });
+            
+            try {
+                // Add loading message
+                const loadingMessage = document.createElement('div');
+                loadingMessage.className = 'text-white text-lg mt-4';
+                loadingMessage.textContent = `Scanning ${target}...`;
+                loading.appendChild(loadingMessage);
+
+                const response = await fetch('/scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        target: target,
+                        email: document.getElementById('email').value,
+                        profile: document.getElementById('profile').value
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Scan failed');
+                }
+                
+                scanResults = await response.json();
+                
+                if (!scanResults || !scanResults.results) {
+                    throw new Error('Invalid scan results received');
+                }
+                
+                displayResults(scanResults.results);
+                results.classList.remove('hidden');
+                downloadBtn.disabled = false;
+                
+                // Update overall status
+                const overallStatus = document.getElementById('overallStatus');
+                const riskScore = calculateRiskScore(scanResults.results);
+                if (riskScore >= 80) {
+                    overallStatus.textContent = 'Status: Critical';
+                    overallStatus.className = 'status status-critical';
+                } else if (riskScore >= 60) {
+                    overallStatus.textContent = 'Status: Warning';
+                    overallStatus.className = 'status status-warning';
+                } else {
+                    overallStatus.textContent = 'Status: Good';
+                    overallStatus.className = 'status status-good';
+                }
+                
+            } catch (error) {
+                console.error('Scan error:', error);
+                alert(`Scan failed: ${error.message}`);
+            } finally {
+                // Remove loading message
+                const loadingMessage = loading.querySelector('.text-white');
+                if (loadingMessage) {
+                    loadingMessage.remove();
+                }
+                loading.classList.add('hidden');
+            }
+        });
+
+        document.getElementById('downloadReport').addEventListener('click', async () => {
+            if (!scanResults) return;
+            
+            try {
+                const response = await fetch('/download-report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(scanResults)
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to generate report');
+                }
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'security-report.pdf';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+            } catch (error) {
+                alert('Failed to download report. Please try again.');
+                console.error('Report download error:', error);
+            }
+        });
+
+        function displayResults(results) {
+            // Update summary
+            const totalIssues = calculateTotalIssues(results);
+            const criticalIssues = calculateCriticalIssues(results);
+            const riskScore = calculateRiskScore(results);
+            
+            document.getElementById('totalIssues').textContent = totalIssues;
+            document.getElementById('criticalIssues').textContent = criticalIssues;
+            document.getElementById('riskScore').textContent = `${riskScore}%`;
+            
+            // Display Network Security
+            const networkSecurity = document.getElementById('networkSecurity');
+            networkSecurity.innerHTML = formatNetworkSecurity(results.network_security);
+            updateSectionStatus('networkStatus', results.network_security);
+            
+            // Display IP Scanner
+            const ipScanner = document.getElementById('ipScanner');
+            ipScanner.innerHTML = formatIPScanner(results.ip_reputation);
+            updateSectionStatus('ipStatus', results.ip_reputation);
+            
+            // Display DNS Health
+            const dnsHealth = document.getElementById('dnsHealth');
+            dnsHealth.innerHTML = formatDNSHealth(results.dns_health);
+            updateSectionStatus('dnsStatus', results.dns_health);
+            
+            // Display SSL/TLS Security
+            const sslSecurity = document.getElementById('sslSecurity');
+            sslSecurity.innerHTML = formatSSLSecurity(results.ssl_tls_security);
+            updateSectionStatus('sslStatus', results.ssl_tls_security);
+            
+            // Display Endpoint Security
+            const endpointSecurity = document.getElementById('endpointSecurity');
+            endpointSecurity.innerHTML = formatEndpointSecurity(results.endpoint_security);
+            updateSectionStatus('endpointStatus', results.endpoint_security);
+            
+            // Display Email Security
+            const emailSecurity = document.getElementById('emailSecurity');
+            emailSecurity.innerHTML = formatEmailSecurity(results.email_security);
+            updateSectionStatus('emailStatus', results.email_security);
+            
+            // Display Vulnerabilities
+            const vulnerabilities = document.getElementById('vulnerabilities');
+            vulnerabilities.innerHTML = formatVulnerabilities(results.vulnerability_assessment);
+            updateSectionStatus('vulnStatus', results.vulnerability_assessment);
+        }
+
+        function updateSectionStatus(statusId, data) {
+            const statusElement = document.getElementById(statusId);
+            if (!data || Object.keys(data).length === 0) {
+                statusElement.textContent = 'Status: Not Available';
+                statusElement.className = 'status status-warning';
+                return;
+            }
+
+            const hasIssues = data.issues && data.issues.length > 0;
+            const hasVulnerabilities = data.common_vulnerabilities && data.common_vulnerabilities.length > 0;
+            const hasCriticalIssues = hasVulnerabilities && data.common_vulnerabilities.some(v => v.severity === 'Critical');
+
+            if (hasCriticalIssues) {
+                statusElement.textContent = 'Status: Critical';
+                statusElement.className = 'status status-critical';
+            } else if (hasIssues || hasVulnerabilities) {
+                statusElement.textContent = 'Status: Warning';
+                statusElement.className = 'status status-warning';
+            } else {
+                statusElement.textContent = 'Status: Good';
+                statusElement.className = 'status status-good';
+            }
+        }
+
+        function calculateTotalIssues(results) {
+            let total = 0;
+            for (const section in results) {
+                if (results[section].issues) {
+                    total += results[section].issues.length;
+                }
+                if (results[section].common_vulnerabilities) {
+                    total += results[section].common_vulnerabilities.length;
+                }
+            }
+            return total;
+        }
+
+        function calculateCriticalIssues(results) {
+            let critical = 0;
+            for (const section in results) {
+                if (results[section].common_vulnerabilities) {
+                    critical += results[section].common_vulnerabilities.filter(v => v.severity === 'Critical').length;
+                }
+            }
+            return critical;
+        }
+
+        function calculateRiskScore(results) {
+            let score = 0;
+            let totalWeight = 0;
+            
+            // Network Security (20%)
+            if (results.network_security) {
+                score += calculateSectionRisk(results.network_security) * 0.2;
+                totalWeight += 0.2;
+            }
+            
+            // DNS Health (15%)
+            if (results.dns_health) {
+                score += calculateSectionRisk(results.dns_health) * 0.15;
+                totalWeight += 0.15;
+            }
+            
+            // SSL/TLS Security (20%)
+            if (results.ssl_tls_security) {
+                score += calculateSectionRisk(results.ssl_tls_security) * 0.2;
+                totalWeight += 0.2;
+            }
+            
+            // Endpoint Security (15%)
+            if (results.endpoint_security) {
+                score += calculateSectionRisk(results.endpoint_security) * 0.15;
+                totalWeight += 0.15;
+            }
+            
+            // Email Security (15%)
+            if (results.email_security) {
+                score += calculateSectionRisk(results.email_security) * 0.15;
+                totalWeight += 0.15;
+            }
+            
+            // Vulnerabilities (20%)
+            if (results.vulnerability_assessment) {
+                score += calculateSectionRisk(results.vulnerability_assessment) * 0.2;
+                totalWeight += 0.2;
+            }
+            
+            return Math.round((score / totalWeight) * 100);
+        }
+
+        function calculateSectionRisk(section) {
+            let risk = 0;
+            
+            if (section.issues) {
+                risk += section.issues.length * 10;
+            }
+            
+            if (section.common_vulnerabilities) {
+                for (const vuln of section.common_vulnerabilities) {
+                    switch (vuln.severity) {
+                        case 'Critical':
+                            risk += 40;
+                            break;
+                        case 'High':
+                            risk += 30;
+                            break;
+                        case 'Medium':
+                            risk += 20;
+                            break;
+                        case 'Low':
+                            risk += 10;
+                            break;
+                    }
+                }
+            }
+            
+            return Math.min(100, risk);
+        }
+
+        function formatNetworkSecurity(data) {
+            if (!data) return '<p class="text-gray-500">No network security data available</p>';
+            
+            let html = '';
+            
+            if (data.ip_info) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">IP Information</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">IP Address:</span> ${data.ip_info.ip}</p>
+                            <p><span class="font-medium">Hostname:</span> ${data.ip_info.hostname || 'N/A'}</p>
+                            <p><span class="font-medium">Location:</span> ${data.ip_info.location || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.dns_info) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">DNS Information</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">Nameservers:</span> ${data.dns_info.nameservers.join(', ') || 'N/A'}</p>
+                            <p><span class="font-medium">MX Records:</span> ${data.dns_info.mx_records.join(', ') || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.whois_info) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">WHOIS Information</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">Registrar:</span> ${data.whois_info.registrar || 'N/A'}</p>
+                            <p><span class="font-medium">Creation Date:</span> ${data.whois_info.creation_date || 'N/A'}</p>
+                            <p><span class="font-medium">Expiration Date:</span> ${data.whois_info.expiration_date || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.issues && data.issues.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
+                        ${data.issues.map(issue => `
+                            <div class="issue ${issue.severity.toLowerCase()}">
+                                <p class="font-medium">${issue.title}</p>
+                                <p class="text-sm mt-1">${issue.description}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No issues found</p>';
+        }
+
+        function formatIPScanner(data) {
+            if (!data) return '<p class="text-gray-500">No IP reputation data available</p>';
+            
+            let html = '';
+            
+            if (data.ip_info) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">IP Information</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">IP Address:</span> ${data.ip_info.ip}</p>
+                            <p><span class="font-medium">Hostname:</span> ${data.ip_info.hostname || 'N/A'}</p>
+                            <p><span class="font-medium">Location:</span> ${data.ip_info.location || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.reputation_data) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Reputation Data</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">AbuseIPDB Score:</span> ${data.reputation_data.abuseipdb_score || 'N/A'}</p>
+                            <p><span class="font-medium">VirusTotal Score:</span> ${data.reputation_data.virustotal_score || 'N/A'}</p>
+                            <p><span class="font-medium">Spamhaus Status:</span> ${data.reputation_data.spamhaus_status || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.issues && data.issues.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
+                        ${data.issues.map(issue => `
+                            <div class="issue ${issue.severity.toLowerCase()}">
+                                <p class="font-medium">${issue.title}</p>
+                                <p class="text-sm mt-1">${issue.description}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No issues found</p>';
+        }
+
+        function formatDNSHealth(data) {
+            if (!data) return '<p class="text-gray-500">No DNS health data available</p>';
+            
+            let html = '';
+            
+            if (data.dns_records) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">DNS Records</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">SPF Record:</span> ${data.dns_records.spf || 'N/A'}</p>
+                            <p><span class="font-medium">DMARC Record:</span> ${data.dns_records.dmarc || 'N/A'}</p>
+                            <p><span class="font-medium">DKIM Record:</span> ${data.dns_records.dkim || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.issues && data.issues.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
+                        ${data.issues.map(issue => `
+                            <div class="issue ${issue.severity.toLowerCase()}">
+                                <p class="font-medium">${issue.title}</p>
+                                <p class="text-sm mt-1">${issue.description}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No issues found</p>';
+        }
+
+        function formatSSLSecurity(data) {
+            if (!data) return '<p class="text-gray-500">No SSL/TLS security data available</p>';
+            
+            let html = '';
+            
+            if (data.certificate_info) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Certificate Information</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">Issuer:</span> ${data.certificate_info.issuer || 'N/A'}</p>
+                            <p><span class="font-medium">Valid From:</span> ${data.certificate_info.valid_from || 'N/A'}</p>
+                            <p><span class="font-medium">Valid Until:</span> ${data.certificate_info.valid_until || 'N/A'}</p>
+                            <p><span class="font-medium">Protocol:</span> ${data.certificate_info.protocol || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.issues && data.issues.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
+                        ${data.issues.map(issue => `
+                            <div class="issue ${issue.severity.toLowerCase()}">
+                                <p class="font-medium">${issue.title}</p>
+                                <p class="text-sm mt-1">${issue.description}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No issues found</p>';
+        }
+
+        function formatEndpointSecurity(data) {
+            if (!data) return '<p class="text-gray-500">No endpoint security data available</p>';
+            
+            let html = '';
+            
+            if (data.server_info) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Server Information</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">Server Type:</span> ${data.server_info.server_type || 'N/A'}</p>
+                            <p><span class="font-medium">Version:</span> ${data.server_info.version || 'N/A'}</p>
+                            <p><span class="font-medium">Operating System:</span> ${data.server_info.os || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.security_headers) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Security Headers</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">X-Frame-Options:</span> ${data.security_headers.x_frame_options || 'N/A'}</p>
+                            <p><span class="font-medium">X-XSS-Protection:</span> ${data.security_headers.x_xss_protection || 'N/A'}</p>
+                            <p><span class="font-medium">X-Content-Type-Options:</span> ${data.security_headers.x_content_type_options || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.issues && data.issues.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
+                        ${data.issues.map(issue => `
+                            <div class="issue ${issue.severity.toLowerCase()}">
+                                <p class="font-medium">${issue.title}</p>
+                                <p class="text-sm mt-1">${issue.description}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No issues found</p>';
+        }
+
+        function formatEmailSecurity(data) {
+            if (!data) return '<p class="text-gray-500">No email security data available</p>';
+            
+            let html = '';
+            
+            if (data.email_info) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Email Information</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p><span class="font-medium">Email Format:</span> ${data.email_info.format || 'N/A'}</p>
+                            <p><span class="font-medium">Domain:</span> ${data.email_info.domain || 'N/A'}</p>
+                            <p><span class="font-medium">MX Records:</span> ${data.email_info.mx_records || 'N/A'}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.issues && data.issues.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
+                        ${data.issues.map(issue => `
+                            <div class="issue ${issue.severity.toLowerCase()}">
+                                <p class="font-medium">${issue.title}</p>
+                                <p class="text-sm mt-1">${issue.description}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No issues found</p>';
+        }
+
+        function formatVulnerabilities(data) {
+            if (!data) return '<p class="text-gray-500">No vulnerability data available</p>';
+            
+            let html = '';
+            
+            if (data.common_vulnerabilities && data.common_vulnerabilities.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Common Vulnerabilities</h3>
+                        ${data.common_vulnerabilities.map(vuln => `
+                            <div class="issue ${vuln.severity.toLowerCase()}">
+                                <p class="font-medium">${vuln.title}</p>
+                                <p class="text-sm mt-1">${vuln.description}</p>
+                                <p class="text-sm mt-2"><span class="font-medium">Severity:</span> ${vuln.severity}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No vulnerabilities found</p>';
+        }
+    </script>
+</body>
+</html> 

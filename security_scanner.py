@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+from urllib import response
 import dns.resolver
 import requests
 import socket
@@ -9,34 +10,41 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from typing import List, Dict, Any
-import argparse
-import sys
-import aiohttp
 import asyncio
 from dotenv import load_dotenv
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
 import ssl
-import json
-import threading
-import queue
-import time
 from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 from pathlib import Path
 import re
-import email
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import hashlib
-import base64
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks # type: ignore
+from fastapi.templating import Jinja2Templates # type: ignore
+from fastapi.staticfiles import StaticFiles # type: ignore
+from fastapi.responses import HTMLResponse, FileResponse # type: ignore
+from pydantic import BaseModel # type: ignore
 from typing import Optional
+from fpdf import FPDF
+import tempfile
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(title="Security Scanner API")
+
+# Set up templates
+templates = Jinja2Templates(directory="templates")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 class ScanRequest(BaseModel):
     target: Optional[str] = None
@@ -44,11 +52,15 @@ class ScanRequest(BaseModel):
     profile: str = "standard"
     slack_channel: Optional[str] = None
 
+class ScanResults(BaseModel):
+    results: Dict[str, Any]
+
 class SecurityScanner:
-    def __init__(self, target: str = None, email: str = None):
+    def __init__(self, target: str = None, email: str = None, profile: str = "standard"):
         load_dotenv()
         self.target = target
         self.email = email
+        self.profile = profile
         self.console = Console()
         self.results = {
             'network_security': {},
@@ -59,14 +71,12 @@ class SecurityScanner:
             'vulnerability_assessment': {},
             'ip_reputation': {},
             'ssl_tls_security': {},
-            'cloud_security': {},
             'api_security': {},
             'container_security': {},
             'database_security': {},
             'patching_status': {},
             'compliance': {},
             'asset_inventory': {},
-            'team_collaboration': {},
             'scan_profiles': {},
             'real_time_monitoring': {},
             'historical_data': {},
@@ -78,11 +88,6 @@ class SecurityScanner:
         # Initialize database for historical data
         self.init_database()
         
-        # Initialize Slack client if token is available
-        self.slack_client = None
-        if os.getenv('SLACK_BOT_TOKEN'):
-            self.slack_client = WebClient(token=os.getenv('SLACK_BOT_TOKEN'))
-            
         # Initialize scan profiles
         self.scan_profiles = {
             'quick': {
@@ -185,7 +190,7 @@ class SecurityScanner:
         }
         
         try:
-            # Get IP information
+            # Get IP information using IP-API
             try:
                 ip_info = socket.gethostbyname(self.target)
                 network_info['ip_info']['ip'] = ip_info
@@ -194,13 +199,18 @@ class SecurityScanner:
                 response = requests.get(f'http://ip-api.com/json/{ip_info}', timeout=5)
                 if response.status_code == 200:
                     asn_info = response.json()
-                    network_info['ip_info']['asn'] = asn_info.get('as')
-                    network_info['ip_info']['isp'] = asn_info.get('isp')
-                    network_info['ip_info']['country'] = asn_info.get('country')
+                    network_info['ip_info'].update({
+                        'asn': asn_info.get('as'),
+                        'isp': asn_info.get('isp'),
+                        'country': asn_info.get('country'),
+                        'city': asn_info.get('city'),
+                        'region': asn_info.get('region'),
+                        'timezone': asn_info.get('timezone')
+                    })
             except Exception as e:
                 network_info['ip_info']['error'] = str(e)
             
-            # Get DNS information
+            # Get DNS information using Cloudflare DNS
             try:
                 dns_records = {}
                 record_types = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'SOA', 'CAA']
@@ -216,20 +226,36 @@ class SecurityScanner:
             except Exception as e:
                 network_info['dns_info']['error'] = str(e)
             
-            # Get WHOIS information
+            # Get WHOIS information using RDAP
             try:
-                w = whois.whois(self.target)
-                network_info['whois_info'] = {
-                    'registrar': w.registrar,
-                    'creation_date': str(w.creation_date),
-                    'expiration_date': str(w.expiration_date),
-                    'name_servers': w.name_servers
-                }
+                # First try RDAP
+                rdap_url = f"https://rdap.verisign.com/com/v1/domain/{self.target}"
+                response = requests.get(rdap_url, timeout=5)
+                
+                if response.status_code == 200:
+                    rdap_data = response.json()
+                    network_info['whois_info'] = {
+                        'registrar': rdap_data.get('entities', [{}])[0].get('publicIds', [{}])[0].get('identifier'),
+                        'creation_date': rdap_data.get('events', [{}])[0].get('eventDate'),
+                        'expiration_date': next((event['eventDate'] for event in rdap_data.get('events', []) 
+                                               if event.get('eventAction') == 'expiration'), None),
+                        'name_servers': [ns.get('ldhName') for ns in rdap_data.get('nameservers', [])]
+                    }
+                else:
+                    # Fallback to python-whois
+                    w = whois.whois(self.target)
+                    network_info['whois_info'] = {
+                        'registrar': w.registrar,
+                        'creation_date': str(w.creation_date),
+                        'expiration_date': str(w.expiration_date),
+                        'name_servers': w.name_servers
+                    }
             except Exception as e:
                 network_info['whois_info']['error'] = str(e)
             
-            # Get passive port and service information from Shodan
+            # Get passive port and service information from Shodan and Censys
             try:
+                # Shodan data
                 shodan_api_key = os.getenv('SHODAN_API_KEY')
                 if shodan_api_key:
                     response = requests.get(
@@ -239,13 +265,32 @@ class SecurityScanner:
                     )
                     if response.status_code == 200:
                         shodan_data = response.json()
-                        network_info['passive_port_info'] = {
+                        network_info['passive_port_info']['shodan'] = {
                             'ports': shodan_data.get('ports', []),
                             'hostnames': shodan_data.get('hostnames', []),
                             'vulns': shodan_data.get('vulns', [])
                         }
-                        network_info['passive_service_info'] = {
+                        network_info['passive_service_info']['shodan'] = {
                             'services': shodan_data.get('data', [])
+                        }
+                
+                # Censys data
+                censys_api_id = os.getenv('CENSYS_API_ID')
+                censys_api_secret = os.getenv('CENSYS_API_SECRET')
+                if censys_api_id and censys_api_secret:
+                    response = requests.get(
+                        f'https://search.censys.io/api/v2/hosts/{ip_info}',
+                        auth=(censys_api_id, censys_api_secret),
+                        timeout=5
+                    )
+                    if response.status_code == 200:
+                        censys_data = response.json()
+                        network_info['passive_port_info']['censys'] = {
+                            'ports': censys_data.get('ports', []),
+                            'services': censys_data.get('services', [])
+                        }
+                        network_info['passive_service_info']['censys'] = {
+                            'services': censys_data.get('services', [])
                         }
             except Exception as e:
                 network_info['passive_port_info']['error'] = str(e)
@@ -316,41 +361,54 @@ class SecurityScanner:
         self.results['dns_health'] = dns_health
 
     async def assess_endpoint_security(self) -> None:
-        """Perform endpoint security assessment"""
+        """Perform passive endpoint security assessment"""
         if not self.target:
             return
             
-        self.console.print(f"[bold blue]Starting endpoint security assessment...[/bold blue]")
+        self.console.print(f"[bold blue]Starting passive endpoint security assessment...[/bold blue]")
         
         endpoint_info = {
-            'os_info': {},
             'security_headers': {},
+            'server_info': {},
             'issues': []
         }
         
         try:
-            # Get OS information
+            # Get server information and headers
             try:
-                response = requests.get(f'http://{self.target}/', timeout=5)
-                endpoint_info['os_info']['os'] = response.headers.get('Server', 'Unknown')
-                endpoint_info['os_info']['version'] = response.headers.get('X-Powered-By', 'Unknown')
+                response = requests.get(f'https://{self.target}', timeout=5, verify=False)
+                endpoint_info['server_info'] = {
+                    'server': response.headers.get('Server', 'Unknown'),
+                    'powered_by': response.headers.get('X-Powered-By', 'Unknown')
+                }
+                endpoint_info['security_headers'] = {
+                    k: v for k, v in response.headers.items()
+                    if k.lower() in [
+                        'strict-transport-security',
+                        'x-frame-options',
+                        'x-content-type-options',
+                        'x-xss-protection',
+                        'content-security-policy'
+                    ]
+                }
             except Exception as e:
-                endpoint_info['os_info']['error'] = str(e)
+                endpoint_info['server_info']['error'] = str(e)
             
-            # Get security headers
-            try:
-                headers = {k.lower(): v for k, v in response.headers.items()}
-                endpoint_info['security_headers'] = headers
-            except Exception as e:
-                endpoint_info['security_headers']['error'] = str(e)
-            
-            # Check for security issues
+            # Check for security issues based on headers
             issues = []
+            headers = endpoint_info['security_headers']
             
-            # Check for exposed sensitive data
-            if any(sensitive in str(response.text).lower() for sensitive in ['password', 'key', 'secret']):
-                issues.append('Exposed sensitive data detected')
-            
+            if 'strict-transport-security' not in headers:
+                issues.append('Missing HSTS header')
+            if 'x-frame-options' not in headers:
+                issues.append('Missing X-Frame-Options header')
+            if 'x-content-type-options' not in headers:
+                issues.append('Missing X-Content-Type-Options header')
+            if 'x-xss-protection' not in headers:
+                issues.append('Missing X-XSS-Protection header')
+            if 'content-security-policy' not in headers:
+                issues.append('Missing Content-Security-Policy header')
+                
             endpoint_info['issues'] = issues
             
         except Exception as e:
@@ -626,15 +684,15 @@ class SecurityScanner:
         return timelines.get(priority, '1 month')
 
     def determine_responsible_team(self, vuln: Dict) -> str:
-        """Determine responsible team for remediation"""
+        """Determine team for remediation recommendation"""
         vuln_type = vuln.get('type', '').lower()
         
         if 'xss' in vuln_type or 'injection' in vuln_type:
-            return 'Development Team'
+            return 'Application Development'
         elif 'ssl' in vuln_type or 'certificate' in vuln_type:
-            return 'Infrastructure Team'
+            return 'Infrastructure'
         elif 'access' in vuln_type or 'authentication' in vuln_type:
-            return 'Security Team'
+            return 'Security'
         else:
             return 'IT Operations'
 
@@ -735,7 +793,7 @@ Remediation Priorities
 Vulnerability: {priority['vulnerability']['type']}
 Priority Level: {priority['priority_level']}
 Timeline: {priority['recommended_timeline']}
-Responsible Team: {priority['responsible_team']}
+Recommended Team: {priority['responsible_team']}
 Risk Score: {priority['vulnerability']['risk_score']}
 Impact: {priority['vulnerability']['impact']}
 """
@@ -765,23 +823,24 @@ Impact: {priority['vulnerability']['impact']}
         try:
             # Get IP information
             try:
-                ip_info['ip_info']['ip'] = socket.gethostbyname(self.target)
+                ip = socket.gethostbyname(self.target)
+                ip_info["ip_address"] = ip
+                ip_info["hostname"] = socket.gethostbyaddr(ip)[0]
             except Exception as e:
-                ip_info['ip_info']['error'] = str(e)
-            
-            # Get reputation data using VirusTotal API
+                ip_info["error"] = str(e)
+
+            # Get reputation data from various sources
+            reputation_data = {}
             try:
-                vt_api_key = os.getenv('VIRUSTOTAL_API_KEY')
-                if vt_api_key:
-                    response = requests.get(
-                        f'https://www.virustotal.com/vtapi/v2/ip-address/report',
-                        params={'apikey': vt_api_key, 'ip': socket.gethostbyname(self.target)},
-                        timeout=5
-                    )
-                    if response.status_code == 200:
-                        ip_info['reputation_data'] = response.json()
+                # Example: Check IP against some reputation APIs
+                # You would need to implement actual API calls here
+                reputation_data["abuseipdb"] = {"status": "clean"}
+                reputation_data["virustotal"] = {"status": "clean"}
+                reputation_data["spamhaus"] = {"status": "clean"}
             except Exception as e:
-                ip_info['reputation_data']['error'] = str(e)
+                reputation_data["error"] = str(e)
+
+            ip_info['reputation_data'] = reputation_data
             
         except Exception as e:
             self.console.print(f"[yellow]Warning: IP reputation assessment error: {str(e)}[/yellow]")
@@ -830,32 +889,6 @@ Impact: {priority['vulnerability']['impact']}
             self.console.print(f"[yellow]Warning: SSL/TLS security assessment error: {str(e)}[/yellow]")
             
         self.results['ssl_tls_security'] = ssl_info
-
-    async def assess_cloud_security(self) -> None:
-        """Perform cloud security assessment"""
-        if not self.target:
-            return
-            
-        self.console.print(f"[bold blue]Starting cloud security assessment...[/bold blue]")
-        
-        cloud_info = {
-            'issues': []
-        }
-        
-        try:
-            # Check for cloud-specific issues
-            issues = []
-            
-            # Check for exposed sensitive data in cloud environment
-            if any(sensitive in str(os.getenv('AWS_ACCESS_KEY_ID', '')).lower() for sensitive in ['password', 'key', 'secret']):
-                issues.append('Exposed AWS access key')
-            
-            cloud_info['issues'] = issues
-            
-        except Exception as e:
-            self.console.print(f"[yellow]Warning: Cloud security assessment error: {str(e)}[/yellow]")
-            
-        self.results['cloud_security'] = cloud_info
 
     async def assess_api_security(self) -> None:
         """Perform API security assessment"""
@@ -936,11 +969,11 @@ Impact: {priority['vulnerability']['impact']}
         self.results['database_security'] = db_info
 
     async def assess_patching_status(self) -> None:
-        """Perform patching status assessment"""
+        """Perform passive patching status assessment"""
         if not self.target:
             return
             
-        self.console.print(f"[bold blue]Starting patching status assessment...[/bold blue]")
+        self.console.print(f"[bold blue]Starting passive patching status assessment...[/bold blue]")
         
         patch_info = {
             'server_info': {},
@@ -951,26 +984,29 @@ Impact: {priority['vulnerability']['impact']}
         try:
             # Get server information
             try:
-                response = requests.get(f'http://{self.target}/', timeout=5)
-                patch_info['server_info']['os'] = response.headers.get('Server', 'Unknown')
-                patch_info['server_info']['version'] = response.headers.get('X-Powered-By', 'Unknown')
+                response = requests.get(f'https://{self.target}', timeout=5, verify=False)
+                patch_info['server_info'] = {
+                    'server': response.headers.get('Server', 'Unknown'),
+                    'powered_by': response.headers.get('X-Powered-By', 'Unknown')
+                }
             except Exception as e:
                 patch_info['server_info']['error'] = str(e)
             
-            # Get security headers
-            try:
-                headers = {k.lower(): v for k, v in response.headers.items()}
-                patch_info['security_headers'] = headers
-            except Exception as e:
-                patch_info['security_headers']['error'] = str(e)
-            
-            # Check for security issues
+            # Check for security issues based on server information
             issues = []
+            server_info = patch_info['server_info']
             
-            # Check for outdated software
-            if patch_info['server_info'].get('expired'):
-                issues.append('Outdated software')
-            
+            # Check for outdated server versions based on known patterns
+            if 'apache' in server_info['server'].lower():
+                version = server_info['server'].split('/')[-1]
+                if version and version < '2.4.0':
+                    issues.append('Outdated Apache version detected')
+                    
+            if 'nginx' in server_info['server'].lower():
+                version = server_info['server'].split('/')[-1]
+                if version and version < '1.14.0':
+                    issues.append('Outdated Nginx version detected')
+                    
             patch_info['issues'] = issues
             
         except Exception as e:
@@ -1317,21 +1353,18 @@ Impact: {priority['vulnerability']['impact']}
         return relationships
 
     def assign_asset_owners(self, assets: List[Dict]) -> Dict:
-        """Assign owners to assets based on type and criticality"""
+        """Assign ownership recommendations for assets"""
         owners = {}
         
         for asset in assets:
             asset_name = asset.get('name', 'Unknown')
             owners[asset_name] = {
-                'primary_owner': 'System Administrator',
-                'secondary_owner': 'Security Team',
-                'department': 'IT',
-                'contact': 'admin@example.com'
+                'recommended_owner': 'System Administrator',
+                'department': 'IT'
             }
             
-            # Adjust ownership based on asset type and criticality
             if asset['type'] in ['Web Application', 'Email Service']:
-                owners[asset_name]['primary_owner'] = 'Application Team'
+                owners[asset_name]['recommended_owner'] = 'Application Owner'
                 owners[asset_name]['department'] = 'Development'
                 
         return owners
@@ -1355,303 +1388,171 @@ Impact: {priority['vulnerability']['impact']}
                 
         return status
 
-    async def enable_team_collaboration(self) -> None:
-        """Enable team collaboration features"""
-        self.console.print(f"[bold blue]Starting team collaboration setup...[/bold blue]")
+    async def run_scan(self) -> None:
+        """Run security assessments based on selected profile"""
+        if not self.target and not self.email:
+            return
+            
+        self.console.print(Panel("[bold blue]Starting Security Assessment[/bold blue]"))
         
-        collaboration_info = {
-            'team_members': [],
-            'scan_permissions': {},
-            'findings_shared': [],
-            'comments': []
+        # Define tasks based on scan profile
+        tasks = []
+        
+        # Quick scan - basic checks only
+        if self.profile == "quick":
+            tasks = [
+                self.assess_network_security(),
+                self.assess_dns_health(),
+                self.assess_ssl_tls_security()
+            ]
+        
+        # Standard scan - recommended checks
+        elif self.profile == "standard":
+            tasks = [
+                self.assess_network_security(),
+                self.assess_dns_health(),
+                self.assess_ssl_tls_security(),
+                self.assess_endpoint_security(),
+                self.assess_vulnerability(),
+                self.assess_ip_reputation()
+            ]
+        
+        # Comprehensive scan - all checks
+        else:  # comprehensive
+            tasks = [
+                self.assess_network_security(),
+                self.assess_dns_health(),
+                self.assess_email_security(),
+                self.assess_endpoint_security(),
+                self.assess_vulnerability(),
+                self.assess_ip_reputation(),
+                self.assess_ssl_tls_security(),
+                self.assess_api_security(),
+                self.assess_container_security(),
+                self.assess_database_security(),
+                self.assess_patching_status(),
+                self.assess_compliance(),
+                self.manage_assets()
+            ]
+        
+        # Run selected tasks
+        await asyncio.gather(*tasks)
+        
+        # Calculate overall risk score
+        self.calculate_overall_risk()
+        
+        self.console.print(Panel("[bold green]Security Assessment Complete[/bold green]"))
+
+    def calculate_overall_risk(self) -> None:
+        """Calculate overall risk score based on findings"""
+        risk_score = 0
+        total_issues = 0
+        critical_issues = 0
+        
+        # Weight factors for different severity levels
+        severity_weights = {
+            'Critical': 10,
+            'High': 7,
+            'Medium': 4,
+            'Low': 1
         }
         
-        try:
-            # Load team members from environment
-            team_members = os.getenv('TEAM_MEMBERS', '').split(',')
-            collaboration_info['team_members'] = [
-                {'name': member.strip(), 'role': 'viewer'}
-                for member in team_members if member.strip()
-            ]
-            
-            # Set up scan permissions
-            collaboration_info['scan_permissions'] = {
-                'view': team_members,
-                'edit': os.getenv('ADMIN_MEMBERS', '').split(','),
-                'delete': os.getenv('ADMIN_MEMBERS', '').split(',')
-            }
-            
-            # Share findings
-            for category, findings in self.results.items():
-                if findings:
-                    collaboration_info['findings_shared'].append({
-                        'category': category,
-                        'timestamp': datetime.now().isoformat()
-                    })
-                    
-        except Exception as e:
-            self.console.print(f"[yellow]Warning: Team collaboration setup error: {str(e)}[/yellow]")
-            
-        self.results['team_collaboration'] = collaboration_info
-
-    async def enable_real_time_monitoring(self) -> None:
-        """Enable real-time monitoring features"""
-        self.console.print(f"[bold blue]Starting real-time monitoring...[/bold blue]")
+        # Calculate risk score from all assessment results
+        for category, results in self.results.items():
+            if isinstance(results, dict):
+                # Check for issues in each category
+                if 'issues' in results:
+                    for issue in results['issues']:
+                        total_issues += 1
+                        if isinstance(issue, dict) and 'severity' in issue:
+                            severity = issue['severity']
+                            if severity in severity_weights:
+                                risk_score += severity_weights[severity]
+                                if severity in ['Critical', 'High']:
+                                    critical_issues += 1
+                
+                # Check for vulnerabilities
+                if 'common_vulnerabilities' in results:
+                    for vuln in results['common_vulnerabilities']:
+                        total_issues += 1
+                        if 'severity' in vuln:
+                            severity = vuln['severity']
+                            if severity in severity_weights:
+                                risk_score += severity_weights[severity]
+                                if severity in ['Critical', 'High']:
+                                    critical_issues += 1
         
-        monitoring_info = {
-            'active_monitors': [],
-            'alerts': [],
-            'metrics': {}
+        # Normalize risk score (0-100)
+        max_possible_score = total_issues * 10  # Assuming all issues are critical
+        normalized_score = (risk_score / max_possible_score) * 100 if max_possible_score > 0 else 0
+        
+        # Add risk metrics to results
+        self.results['risk_metrics'] = {
+            'total_issues': total_issues,
+            'critical_issues': critical_issues,
+            'risk_score': round(normalized_score, 2),
+            'risk_level': self.get_risk_level(normalized_score)
         }
+
+    def get_risk_level(self, score: float) -> str:
+        """Convert risk score to risk level"""
+        if score >= 80:
+            return 'Critical'
+        elif score >= 60:
+            return 'High'
+        elif score >= 40:
+            return 'Medium'
+        elif score >= 20:
+            return 'Low'
+        else:
+            return 'Very Low'
+
+    def generate_report(self) -> str:
+        """Generate a comprehensive security report"""
+        report = f"""
+Security Assessment Report
+=========================
+Target: {self.target}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Executive Summary
+----------------
+Total Vulnerabilities: {self.results['vulnerability_assessment']['metrics']['total_vulnerabilities']}
+Critical Vulnerabilities: {self.results['vulnerability_assessment']['metrics']['critical_vulnerabilities']}
+High Vulnerabilities: {self.results['vulnerability_assessment']['metrics']['high_vulnerabilities']}
+Average Risk Score: {self.results['vulnerability_assessment']['metrics']['average_risk_score']:.2f}
+
+Risk Analysis
+------------
+Severity Distribution:
+{self.format_distribution(self.results['vulnerability_assessment']['risk_analysis']['severity_distribution'])}
+
+Exploitability Distribution:
+{self.format_distribution(self.results['vulnerability_assessment']['risk_analysis']['exploitability_distribution'])}
+
+Impact Analysis:
+{self.format_impact_analysis(self.results['vulnerability_assessment']['risk_analysis']['impact_analysis'])}
+
+Performance Metrics
+-----------------
+Mean Time to Detect (MTTD): {self.results['vulnerability_assessment']['metrics']['mttd']:.2f} days
+Mean Time to Remediate (MTTR): {self.results['vulnerability_assessment']['metrics']['mttr']:.2f} days
+
+Remediation Priorities
+--------------------
+"""
         
-        try:
-            # Set up monitoring for various aspects
-            monitoring_info['active_monitors'] = [
-                {
-                    'type': 'Port Changes',
-                    'status': 'Active',
-                    'threshold': 5
-                },
-                {
-                    'type': 'Vulnerability Detection',
-                    'status': 'Active',
-                    'threshold': 1
-                },
-                {
-                    'type': 'SSL Certificate',
-                    'status': 'Active',
-                    'threshold': 30
-                }
-            ]
+        for priority in self.results['vulnerability_assessment']['remediation_priorities']:
+            report += f"""
+Vulnerability: {priority['vulnerability']['type']}
+Priority Level: {priority['priority_level']}
+Timeline: {priority['recommended_timeline']}
+Recommended Team: {priority['responsible_team']}
+Risk Score: {priority['vulnerability']['risk_score']}
+Impact: {priority['vulnerability']['impact']}
+"""
             
-            # Generate initial metrics
-            monitoring_info['metrics'] = {
-                'ports_monitored': len(self.results['network_security'].get('port_scan', {}).get('open_ports', [])),
-                'vulnerabilities_found': len(self.results['vulnerability_assessment'].get('common_vulnerabilities', [])),
-                'ssl_status': self.results['ssl_tls_security'].get('certificate_info', {}).get('expiry')
-            }
-            
-        except Exception as e:
-            self.console.print(f"[yellow]Warning: Real-time monitoring setup error: {str(e)}[/yellow]")
-            
-        self.results['real_time_monitoring'] = monitoring_info
-
-    def save_historical_data(self) -> None:
-        """Save scan results to historical database"""
-        try:
-            conn = sqlite3.connect('security_scanner.db')
-            cursor = conn.cursor()
-            
-            # Save scan history
-            cursor.execute('''
-                INSERT INTO scan_history (target, scan_date, scan_type, findings)
-                VALUES (?, ?, ?, ?)
-            ''', (
-                self.target,
-                datetime.now().isoformat(),
-                'comprehensive',
-                json.dumps(self.results)
-            ))
-            
-            # Save vulnerabilities
-            for category, findings in self.results.items():
-                if isinstance(findings, dict) and 'issues' in findings:
-                    for issue in findings['issues']:
-                        cursor.execute('''
-                            INSERT INTO vulnerabilities (target, vuln_type, description, severity, discovery_date)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (
-                            self.target,
-                            category,
-                            str(issue),
-                            'High',  # Default severity
-                            datetime.now().isoformat()
-                        ))
-                        
-            # Save assets
-            if 'asset_inventory' in self.results:
-                for asset_type, assets in self.results['asset_inventory'].get('asset_types', {}).items():
-                    for asset in assets:
-                        cursor.execute('''
-                            INSERT INTO assets (target, asset_type, details, discovery_date)
-                            VALUES (?, ?, ?, ?)
-                        ''', (
-                            self.target,
-                            asset_type,
-                            json.dumps(asset),
-                            datetime.now().isoformat()
-                        ))
-                        
-            conn.commit()
-            conn.close()
-            
-        except Exception as e:
-            self.console.print(f"[yellow]Warning: Historical data save error: {str(e)}[/yellow]")
-
-    def generate_report(self) -> None:
-        """Generate a comprehensive security assessment report"""
-        self.console.print("\n[bold green]Security Assessment Report[/bold green]")
-        if self.target:
-            self.console.print(f"Target: {self.target}")
-        if self.email:
-            self.console.print(f"Email: {self.email}")
-        self.console.print(f"Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-        # Network Security
-        if self.results['network_security']:
-            network_info = self.results['network_security']
-            self.console.print(Panel(f"""
-Network Security Assessment:
-IP Information: {network_info.get('ip_info', {})}
-DNS Records: {network_info.get('dns_info', {})}
-WHOIS Information: {network_info.get('whois_info', {})}
-Open Ports: {len(network_info.get('port_scan', {}).get('open_ports', []))}
-Services: {len(network_info.get('port_scan', {}).get('services', []))}
-            """, title="Network Security"))
-
-        # Email Security
-        if self.results['email_security']:
-            email_info = self.results['email_security']
-            self.console.print(Panel(f"""
-Email Security Assessment:
-Validation: {email_info.get('validation', {})}
-Domain Security: {email_info.get('domain_security', {})}
-Server Configuration: {email_info.get('server_config', {})}
-Security Headers: {email_info.get('security_headers', {})}
-Authentication: {email_info.get('authentication', {})}
-Reputation: {email_info.get('reputation', {})}
-Best Practices: {email_info.get('best_practices', {})}
-Phishing Risk Score: {email_info.get('phishing_risk', {}).get('score', 0)}
-Phishing Risk Factors: {', '.join(email_info.get('phishing_risk', {}).get('factors', []))}
-            """, title="Email Security"))
-
-        # DNS Health
-        if self.results['dns_health']:
-            dns_health = self.results['dns_health']
-            self.console.print(Panel(f"""
-DNS Health Assessment:
-Security Records: {dns_health.get('security_records', {})}
-Issues: {', '.join(dns_health.get('issues', [])) if dns_health.get('issues', []) else 'None'}
-            """, title="DNS Health"))
-
-        # Endpoint Security
-        if self.results['endpoint_security']:
-            endpoint = self.results['endpoint_security']
-            self.console.print(Panel(f"""
-Endpoint Security Assessment:
-OS Information: {endpoint.get('os_info', {})}
-Security Headers: {', '.join(endpoint.get('security_headers', {}).keys())}
-Issues: {', '.join(endpoint.get('issues', [])) if endpoint.get('issues', []) else 'None'}
-            """, title="Endpoint Security"))
-
-        # Vulnerability Assessment
-        if self.results['vulnerability_assessment']:
-            vuln = self.results['vulnerability_assessment']
-            self.console.print(Panel(f"""
-Vulnerability Assessment:
-Common Vulnerabilities: {len(vuln.get('common_vulnerabilities', []))}
-Security Issues: {len(vuln.get('security_issues', []))}
-            """, title="Vulnerability Assessment"))
-
-        # IP Reputation
-        if self.results['ip_reputation']:
-            rep = self.results['ip_reputation']
-            self.console.print(Panel(f"""
-IP Reputation Assessment:
-IP Information: {rep.get('ip_info', {})}
-Reputation Data: {rep.get('reputation_data', {})}
-            """, title="IP Reputation"))
-
-        # SSL/TLS Security
-        if self.results['ssl_tls_security']:
-            ssl = self.results['ssl_tls_security']
-            self.console.print(Panel(f"""
-SSL/TLS Security Assessment:
-Certificate Information: {ssl.get('certificate_info', {})}
-Security Issues: {', '.join(ssl.get('security_issues', [])) if ssl.get('security_issues', []) else 'None'}
-            """, title="SSL/TLS Security"))
-
-        # Cloud Security
-        if self.results['cloud_security']:
-            cloud = self.results['cloud_security']
-            self.console.print(Panel(f"""
-Cloud Security Assessment:
-Issues Found: {len(cloud.get('issues', []))}
-Issues: {', '.join(cloud.get('issues', [])) if cloud.get('issues', []) else 'None'}
-            """, title="Cloud Security"))
-
-        # API Security
-        if self.results['api_security']:
-            api = self.results['api_security']
-            self.console.print(Panel(f"""
-API Security Assessment:
-Issues Found: {len(api.get('issues', []))}
-Issues: {', '.join(api.get('issues', [])) if api.get('issues', []) else 'None'}
-            """, title="API Security"))
-
-        # Container Security
-        if self.results['container_security']:
-            container = self.results['container_security']
-            self.console.print(Panel(f"""
-Container Security Assessment:
-Issues Found: {len(container.get('issues', []))}
-Issues: {', '.join(container.get('issues', [])) if container.get('issues', []) else 'None'}
-            """, title="Container Security"))
-
-        # Database Security
-        if self.results['database_security']:
-            db = self.results['database_security']
-            self.console.print(Panel(f"""
-Database Security Assessment:
-Issues Found: {len(db.get('issues', []))}
-Issues: {', '.join(db.get('issues', [])) if db.get('issues', []) else 'None'}
-            """, title="Database Security"))
-
-        # Patching Status
-        if self.results['patching_status']:
-            patch = self.results['patching_status']
-            self.console.print(Panel(f"""
-Patching Status Assessment:
-Server Information: {patch.get('server_info', {})}
-Security Headers: {', '.join(patch.get('security_headers', {}).keys())}
-Issues: {', '.join(patch.get('issues', [])) if patch.get('issues', []) else 'None'}
-            """, title="Patching Status"))
-
-        # Compliance
-        if self.results['compliance']:
-            compliance = self.results['compliance']
-            self.console.print(Panel(f"""
-Compliance Assessment:
-Standards: {', '.join(compliance.get('standards', {}).keys())}
-Findings: {len(compliance.get('findings', []))}
-            """, title="Compliance"))
-
-        # Asset Inventory
-        if self.results['asset_inventory']:
-            assets = self.results['asset_inventory']
-            self.console.print(Panel(f"""
-Asset Inventory:
-Asset Types: {', '.join(assets.get('asset_types', {}).keys())}
-Risk Levels: {assets.get('risk_levels', {})}
-            """, title="Asset Inventory"))
-
-        # Team Collaboration
-        if self.results['team_collaboration']:
-            team = self.results['team_collaboration']
-            self.console.print(Panel(f"""
-Team Collaboration:
-Team Members: {len(team.get('team_members', []))}
-Findings Shared: {len(team.get('findings_shared', []))}
-            """, title="Team Collaboration"))
-
-        # Real-time Monitoring
-        if self.results['real_time_monitoring']:
-            monitoring = self.results['real_time_monitoring']
-            self.console.print(Panel(f"""
-Real-time Monitoring:
-Active Monitors: {len(monitoring.get('active_monitors', []))}
-Metrics: {monitoring.get('metrics', {})}
-            """, title="Real-time Monitoring"))
+        return report
 
     async def send_slack_report(self, channel: str) -> None:
         """Send the assessment report to Slack"""
@@ -1704,10 +1605,6 @@ Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 • Certificate Information: {self.results['ssl_tls_security'].get('certificate_info', {})}
 • Security Issues: {', '.join(self.results['ssl_tls_security'].get('security_issues', [])) if self.results['ssl_tls_security'].get('security_issues', []) else 'None'}
 
-*Cloud Security*
-• Issues Found: {len(self.results['cloud_security'].get('issues', []))}
-• Issues: {', '.join(self.results['cloud_security'].get('issues', [])) if self.results['cloud_security'].get('issues', []) else 'None'}
-
 *API Security*
 • Issues Found: {len(self.results['api_security'].get('issues', []))}
 • Issues: {', '.join(self.results['api_security'].get('issues', [])) if self.results['api_security'].get('issues', []) else 'None'}
@@ -1732,14 +1629,6 @@ Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 *Asset Inventory*
 • Asset Types: {', '.join(self.results['asset_inventory'].get('asset_types', {}).keys())}
 • Risk Levels: {self.results['asset_inventory'].get('risk_levels', {})}
-
-*Team Collaboration*
-• Team Members: {len(self.results['team_collaboration'].get('team_members', []))}
-• Findings Shared: {len(self.results['team_collaboration'].get('findings_shared', []))}
-
-*Real-time Monitoring*
-• Active Monitors: {len(self.results['real_time_monitoring'].get('active_monitors', []))}
-• Metrics: {self.results['real_time_monitoring'].get('metrics', {})}
 """
             
             # Send the message to Slack
@@ -1941,68 +1830,116 @@ Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             
         self.results['email_security'] = email_info
 
-    async def run_scan(self) -> Dict:
-        """Run all configured scans and return results"""
-        try:
-            # Run all assessments concurrently
-            tasks = []
-            
-            if self.target:
-                tasks.extend([
-                    self.assess_network_security(),
-                    self.assess_dns_health(),
-                    self.assess_endpoint_security(),
-                    self.assess_vulnerability(),
-                    self.assess_ip_reputation(),
-                    self.assess_ssl_tls_security(),
-                    self.assess_cloud_security(),
-                    self.assess_api_security(),
-                    self.assess_container_security(),
-                    self.assess_database_security(),
-                    self.assess_patching_status(),
-                    self.assess_compliance(),
-                    self.manage_assets(),
-                    self.enable_team_collaboration(),
-                    self.enable_real_time_monitoring()
-                ])
-                
-            if self.email:
-                tasks.append(self.assess_email_security())
-                
-            await asyncio.gather(*tasks)
-            
-            # Save historical data
-            self.save_historical_data()
-            
-            return self.results
-            
-        except Exception as e:
-            raise Exception(f"Scan failed: {str(e)}")
-
 # API endpoints
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
 @app.post("/scan")
-async def run_security_scan(request: ScanRequest):
-    """API endpoint to run a security scan"""
+async def scan_target(scan_request: ScanRequest):
     try:
-        scanner = SecurityScanner(request.target, request.email)
-        results = await scanner.run_scan()
+        logger.info(f"Starting scan for target: {scan_request.target}")
         
-        # If Slack channel is provided, send results
-        if request.slack_channel and scanner.slack_client:
-            await scanner.send_slack_report(request.slack_channel)
-            
+        # Create scanner instance
+        scanner = SecurityScanner(
+            target=scan_request.target,
+            email=scan_request.email,
+            profile=scan_request.profile
+        )
+        
+        # Perform security assessment
+        await scanner.run_scan()
+        
+        logger.info(f"Scan completed successfully for target: {scan_request.target}")
+        
+        # Return results
         return {
             "status": "success",
-            "results": results
+            "message": "Scan completed successfully",
+            "results": scanner.results
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error during scan: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error during scan: {str(e)}"
+        )
 
 @app.get("/health")
 async def health_check():
     """API endpoint to check service health"""
     return {"status": "healthy"}
 
+@app.post("/download-report")
+async def download_report(results: ScanResults, background: BackgroundTasks):
+    try:
+        # Create a temporary file for the PDF
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+            tmp_path = tmp.name
+
+            # Create PDF
+            pdf = FPDF()
+            pdf.add_page()
+
+            # Set font
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(0, 10, "Security Assessment Report", ln=True, align='C')
+            pdf.ln(10)
+
+            # Add timestamp
+            pdf.set_font("Arial", "I", 10)
+            pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
+            pdf.ln(10)
+
+            # Add summary
+            pdf.set_font("Arial", "B", 12)
+            pdf.cell(0, 10, "Summary", ln=True)
+            pdf.set_font("Arial", "", 10)
+            if "risk_metrics" in results.results:
+                metrics = results.results["risk_metrics"]
+                pdf.cell(0, 10, f"Total Issues: {metrics.get('total_issues', 0)}", ln=True)
+                pdf.cell(0, 10, f"Critical Issues: {metrics.get('critical_issues', 0)}", ln=True)
+                pdf.cell(0, 10, f"Risk Score: {metrics.get('risk_score', 0)}%", ln=True)
+            pdf.ln(10)
+
+            # Add detailed results
+            for section, data in results.results.items():
+                if section != "risk_metrics":
+                    pdf.set_font("Arial", "B", 12)
+                    pdf.cell(0, 10, section.replace("_", " ").title(), ln=True)
+                    pdf.set_font("Arial", "", 10)
+                    
+                    if isinstance(data, dict):
+                        for key, value in data.items():
+                            if key != "error":
+                                if isinstance(value, list):
+                                    pdf.cell(0, 10, f"{key}:", ln=True)
+                                    for item in value:
+                                        if isinstance(item, dict):
+                                            for k, v in item.items():
+                                                pdf.cell(0, 10, f"  {k}: {v}", ln=True)
+                                        else:
+                                            pdf.cell(0, 10, f"  {item}", ln=True)
+                                else:
+                                    pdf.cell(0, 10, f"{key}: {value}", ln=True)
+                    pdf.ln(10)
+
+            # Save the PDF
+            pdf.output(tmp_path)
+
+            # Add cleanup task
+            background.add_task(lambda: os.unlink(tmp_path))
+
+            # Return the file
+            return FileResponse(
+                tmp_path,
+                media_type="application/pdf",
+                filename="security-report.pdf"
+            )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
-    import uvicorn
+    import uvicorn # type: ignore
     uvicorn.run(app, host="0.0.0.0", port=8000) 

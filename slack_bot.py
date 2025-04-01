@@ -1,153 +1,162 @@
 #!/usr/bin/env python3
 import os
-import logging
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-from dotenv import load_dotenv
-import aiohttp
 import asyncio
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+from dotenv import load_dotenv
+from rich.console import Console
 import json
+import aiohttp
+from typing import Dict, Any
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Initialize Slack app
-app = App(token=os.getenv("SLACK_BOT_TOKEN"))
-
-# Security scanner API endpoint
-SCANNER_API_URL = os.getenv("SCANNER_API_URL", "http://localhost:8000")
-
-async def call_scanner_api(target=None, email=None, profile="standard"):
-    """Make API call to security scanner"""
-    async with aiohttp.ClientSession() as session:
-        payload = {
-            "target": target,
-            "email": email,
-            "profile": profile
-        }
+class SecurityScannerBot:
+    def __init__(self):
+        load_dotenv()
+        self.console = Console()
+        self.slack_token = os.getenv('SLACK_BOT_TOKEN')
+        self.api_url = os.getenv('API_URL', 'http://localhost:8000')
+        
+        if not self.slack_token:
+            raise ValueError("SLACK_BOT_TOKEN not found in environment variables")
+            
+        self.client = WebClient(token=self.slack_token)
+        
+    async def handle_command(self, command: str, channel: str, user: str) -> None:
+        """Handle incoming Slack commands"""
+        try:
+            # Parse command
+            parts = command.split()
+            if not parts:
+                await self.send_message(channel, "Please provide a command. Available commands:\n- scan <target> [email]\n- help")
+                return
+                
+            cmd = parts[0].lower()
+            
+            if cmd == 'help':
+                await self.show_help(channel)
+            elif cmd == 'scan':
+                await self.handle_scan(parts[1:], channel, user)
+            else:
+                await self.send_message(channel, f"Unknown command: {cmd}. Type 'help' for available commands.")
+                
+        except Exception as e:
+            self.console.print(f"[red]Error handling command: {str(e)}[/red]")
+            await self.send_message(channel, f"Error processing command: {str(e)}")
+            
+    async def handle_scan(self, args: list, channel: str, user: str) -> None:
+        """Handle scan command"""
+        if not args:
+            await self.send_message(channel, "Please provide a target to scan. Usage: scan <target> [email]")
+            return
+            
+        target = args[0]
+        email = args[1] if len(args) > 1 else None
+        
+        # Send initial message
+        await self.send_message(channel, f"Starting security scan for {target}...")
         
         try:
-            async with session.post(f"{SCANNER_API_URL}/scan", json=payload) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    error_text = await response.text()
-                    raise Exception(f"Scanner API error: {error_text}")
-        except Exception as e:
-            logger.error(f"Error calling scanner API: {str(e)}")
-            raise
-
-@app.command("/scan")
-def handle_scan_command(ack, command, say):
-    """Handle /scan command"""
-    ack()
-    
-    try:
-        # Parse command text
-        args = command['text'].split()
-        if not args:
-            say("Please provide a target domain or email address.\nUsage: /scan [domain] [--email email@domain.com] [--profile quick|standard|comprehensive]")
-            return
-            
-        # Parse arguments
-        target = None
-        email = None
-        profile = "standard"
-        
-        i = 0
-        while i < len(args):
-            if args[i] == "--email" and i + 1 < len(args):
-                email = args[i + 1]
-                i += 2
-            elif args[i] == "--profile" and i + 1 < len(args):
-                profile = args[i + 1]
-                i += 2
-            else:
-                target = args[i]
-                i += 1
+            # Call security scanner API
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "target": target,
+                    "email": email,
+                    "profile": "comprehensive"
+                }
                 
-        if not target and not email:
-            say("Please provide either a target domain or email address.")
-            return
+                async with session.post(f"{self.api_url}/scan", json=payload) as response:
+                    if response.status == 200:
+                        results = await response.json()
+                        await self.send_scan_results(channel, results)
+                    else:
+                        error_text = await response.text()
+                        await self.send_message(channel, f"Error during scan: {error_text}")
+                        
+        except Exception as e:
+            self.console.print(f"[red]Error during scan: {str(e)}[/red]")
+            await self.send_message(channel, f"Error during scan: {str(e)}")
             
-        # Start scan
-        say(f"Starting security scan...\nTarget: {target if target else 'None'}\nEmail: {email if email else 'None'}\nProfile: {profile}")
-        
-        # Run scan asynchronously
-        asyncio.create_task(run_scan_and_report(target, email, profile, say))
-        
-    except Exception as e:
-        say(f"Error initiating scan: {str(e)}")
+    async def send_scan_results(self, channel: str, results: Dict[str, Any]) -> None:
+        """Format and send scan results to Slack"""
+        try:
+            # Create a formatted message
+            message = f"""
+*Security Scan Results*
 
-async def run_scan_and_report(target, email, profile, say):
-    """Run scan and report results"""
-    try:
-        # Call scanner API
-        results = await call_scanner_api(target, email, profile)
-        
-        if results["status"] == "success":
-            # Format and send results
-            message = format_results(results["results"])
-            say(message)
-        else:
-            say("Scan completed with errors. Please check the logs for details.")
+*Network Security*
+• IP Information: {results.get('network_security', {}).get('ip_info', {})}
+• DNS Records: {results.get('network_security', {}).get('dns_info', {})}
+• WHOIS Information: {results.get('network_security', {}).get('whois_info', {})}
+
+*Email Security*
+• Validation: {results.get('email_security', {}).get('validation', {})}
+• Domain Security: {results.get('email_security', {}).get('domain_security', {})}
+• Phishing Risk Score: {results.get('email_security', {}).get('phishing_risk', {}).get('score', 0)}
+
+*Endpoint Security*
+• Security Headers: {', '.join(results.get('endpoint_security', {}).get('security_headers', {}).keys())}
+• Issues: {', '.join(results.get('endpoint_security', {}).get('issues', [])) if results.get('endpoint_security', {}).get('issues', []) else 'None'}
+
+*SSL/TLS Security*
+• Certificate Information: {results.get('ssl_tls_security', {}).get('certificate_info', {})}
+• Security Issues: {', '.join(results.get('ssl_tls_security', {}).get('security_issues', [])) if results.get('ssl_tls_security', {}).get('security_issues', []) else 'None'}
+
+*Asset Inventory*
+• Asset Types: {', '.join(results.get('asset_inventory', {}).get('asset_types', {}).keys())}
+• Risk Levels: {results.get('asset_inventory', {}).get('risk_levels', {})}
+"""
             
-    except Exception as e:
-        say(f"Error during scan: {str(e)}")
+            # Send the message to Slack
+            await self.send_message(channel, message)
+            
+        except Exception as e:
+            self.console.print(f"[red]Error sending scan results: {str(e)}[/red]")
+            await self.send_message(channel, f"Error formatting scan results: {str(e)}")
+            
+    async def show_help(self, channel: str) -> None:
+        """Show help message with available commands"""
+        help_message = """
+*Security Scanner Bot Commands*
 
-def format_results(results):
-    """Format scan results for Slack message"""
-    message = "*Security Scan Results*\n\n"
-    
-    # Network Security
-    if results.get('network_security'):
-        network = results['network_security']
-        message += "*Network Security*\n"
-        message += f"• Open Ports: {len(network.get('port_scan', {}).get('open_ports', []))}\n"
-        message += f"• Services: {len(network.get('port_scan', {}).get('services', []))}\n\n"
-    
-    # Email Security
-    if results.get('email_security'):
-        email = results['email_security']
-        message += "*Email Security*\n"
-        message += f"• Validation: {email.get('validation', {}).get('format', 'Unknown')}\n"
-        message += f"• SPF: {'Configured' if email.get('domain_security', {}).get('spf') != 'Not found' else 'Missing'}\n"
-        message += f"• DMARC: {'Configured' if email.get('domain_security', {}).get('dmarc') != 'Not found' else 'Missing'}\n"
-        message += f"• DKIM: {'Configured' if email.get('domain_security', {}).get('dkim') != 'Not found' else 'Missing'}\n"
-        message += f"• Phishing Risk Score: {email.get('phishing_risk', {}).get('score', 0)}/10\n\n"
-    
-    # DNS Health
-    if results.get('dns_health'):
-        dns = results['dns_health']
-        message += "*DNS Health*\n"
-        message += f"• Issues: {', '.join(dns.get('issues', [])) if dns.get('issues', []) else 'None'}\n\n"
-    
-    # Vulnerability Assessment
-    if results.get('vulnerability_assessment'):
-        vuln = results['vulnerability_assessment']
-        message += "*Vulnerability Assessment*\n"
-        message += f"• Common Vulnerabilities: {len(vuln.get('common_vulnerabilities', []))}\n"
-        message += f"• Security Issues: {len(vuln.get('security_issues', []))}\n\n"
-    
-    # SSL/TLS Security
-    if results.get('ssl_tls_security'):
-        ssl = results['ssl_tls_security']
-        message += "*SSL/TLS Security*\n"
-        message += f"• Certificate Valid: {'Yes' if ssl.get('certificate_info', {}).get('valid') else 'No'}\n"
-        message += f"• Issues: {', '.join(ssl.get('security_issues', [])) if ssl.get('security_issues', []) else 'None'}\n\n"
-    
-    return message
+*scan <target> [email]*
+• Initiates a security scan for the specified target
+• Optional email parameter for email security assessment
+• Example: scan example.com test@example.com
 
-@app.event("app_mention")
-def handle_mention(event, say):
-    """Handle mentions of the bot"""
-    say("Hello! I'm your security scanning assistant. Use `/scan` to start a security assessment.\n"
-        "Usage: `/scan [domain] [--email email@domain.com] [--profile quick|standard|comprehensive]`")
+*help*
+• Shows this help message
 
+*Note:* All scans are performed using passive reconnaissance techniques.
+"""
+        await self.send_message(channel, help_message)
+        
+    async def send_message(self, channel: str, message: str) -> None:
+        """Send a message to a Slack channel"""
+        try:
+            await self.client.chat_postMessage(
+                channel=channel,
+                text=message,
+                parse='mrkdwn'
+            )
+        except SlackApiError as e:
+            self.console.print(f"[red]Error sending message to Slack: {str(e)}[/red]")
+            
+    async def start(self) -> None:
+        """Start the Slack bot"""
+        self.console.print("[bold blue]Starting Security Scanner Bot...[/bold blue]")
+        
+        try:
+            # Test the connection
+            await self.client.auth_test()
+            self.console.print("[green]Successfully connected to Slack[/green]")
+            
+            # Keep the bot running
+            while True:
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            self.console.print(f"[red]Error starting bot: {str(e)}[/red]")
+            
 if __name__ == "__main__":
-    handler = SocketModeHandler(app, os.getenv("SLACK_APP_TOKEN"))
-    handler.start() 
+    bot = SecurityScannerBot()
+    asyncio.run(bot.start()) 
