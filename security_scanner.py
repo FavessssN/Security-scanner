@@ -29,6 +29,9 @@ from typing import Optional
 from fpdf import FPDF
 import tempfile
 import logging
+from attack_surface_scanner import AttackSurfaceScanner
+# Temporarily comment out ScoutSuite import
+# from cloud_security_scanner import CloudSecurityScanner
 
 # Configure logging
 logging.basicConfig(
@@ -62,6 +65,13 @@ class SecurityScanner:
         self.email = email
         self.profile = profile
         self.console = Console()
+        
+        # Validate required API keys
+        required_keys = ['SHODAN_API_KEY', 'ABUSEIPDB_API_KEY']
+        missing_keys = [key for key in required_keys if not os.getenv(key)]
+        if missing_keys:
+            raise ValueError(f"Missing required API keys: {', '.join(missing_keys)}")
+            
         self.results = {
             'network_security': {},
             'dns_health': {},
@@ -82,25 +92,58 @@ class SecurityScanner:
             'historical_data': {},
             'vulnerability_metrics': {},
             'risk_analysis': {},
-            'remediation_tracking': {}
+            'remediation_tracking': {},
+            'cloud_security': {}
         }
         
         # Initialize database for historical data
         self.init_database()
         
-        # Initialize scan profiles
+        # Initialize scan profiles with optimized settings
         self.scan_profiles = {
             'quick': {
                 'vuln_scan': False,
-                'compliance': False
+                'compliance': False,
+                'timeout': 30,  # 30 seconds timeout
+                'tasks': [
+                    'network_security',
+                    'dns_health',
+                    'ssl_tls_security'
+                ]
             },
             'standard': {
                 'vuln_scan': True,
-                'compliance': True
+                'compliance': True,
+                'timeout': 60,  # 60 seconds timeout
+                'tasks': [
+                    'network_security',
+                    'dns_health',
+                    'ssl_tls_security',
+                    'endpoint_security',
+                    'vulnerability_assessment',
+                    'ip_reputation'
+                ]
             },
             'comprehensive': {
                 'vuln_scan': True,
-                'compliance': True
+                'compliance': True,
+                'timeout': 120,  # 120 seconds timeout
+                'tasks': [
+                    'network_security',
+                    'dns_health',
+                    'ssl_tls_security',
+                    'endpoint_security',
+                    'vulnerability_assessment',
+                    'ip_reputation',
+                    'email_security',
+                    'api_security',
+                    'container_security',
+                    'database_security',
+                    'patching_status',
+                    'compliance',
+                    'asset_inventory',
+                    'cloud_security'  # Added cloud security scanning
+                ]
             }
         }
 
@@ -186,7 +229,8 @@ class SecurityScanner:
             'dns_info': {},
             'whois_info': {},
             'passive_port_info': {},
-            'passive_service_info': {}
+            'passive_service_info': {},
+            'nmap_scan': {}  # Added for nmap results
         }
         
         try:
@@ -226,74 +270,48 @@ class SecurityScanner:
             except Exception as e:
                 network_info['dns_info']['error'] = str(e)
             
-            # Get WHOIS information using RDAP
+            # Get WHOIS information
             try:
-                # First try RDAP
-                rdap_url = f"https://rdap.verisign.com/com/v1/domain/{self.target}"
-                response = requests.get(rdap_url, timeout=5)
-                
-                if response.status_code == 200:
-                    rdap_data = response.json()
-                    network_info['whois_info'] = {
-                        'registrar': rdap_data.get('entities', [{}])[0].get('publicIds', [{}])[0].get('identifier'),
-                        'creation_date': rdap_data.get('events', [{}])[0].get('eventDate'),
-                        'expiration_date': next((event['eventDate'] for event in rdap_data.get('events', []) 
-                                               if event.get('eventAction') == 'expiration'), None),
-                        'name_servers': [ns.get('ldhName') for ns in rdap_data.get('nameservers', [])]
-                    }
-                else:
-                    # Fallback to python-whois
-                    w = whois.whois(self.target)
-                    network_info['whois_info'] = {
-                        'registrar': w.registrar,
-                        'creation_date': str(w.creation_date),
-                        'expiration_date': str(w.expiration_date),
-                        'name_servers': w.name_servers
-                    }
+                whois_info = whois.whois(self.target)
+                network_info['whois_info'] = {
+                    'registrar': whois_info.registrar,
+                    'creation_date': str(whois_info.creation_date),
+                    'expiration_date': str(whois_info.expiration_date)
+                }
             except Exception as e:
                 network_info['whois_info']['error'] = str(e)
             
-            # Get passive port and service information from Shodan and Censys
+            # Get passive port and service information from Shodan
             try:
-                # Shodan data
                 shodan_api_key = os.getenv('SHODAN_API_KEY')
                 if shodan_api_key:
                     response = requests.get(
-                        f'https://api.shodan.io/shodan/host/{ip_info}',
-                        params={'key': shodan_api_key},
-                        timeout=5
+                        f'https://api.shodan.io/shodan/host/{ip_info}?key={shodan_api_key}',
+                        timeout=10
                     )
                     if response.status_code == 200:
                         shodan_data = response.json()
                         network_info['passive_port_info']['shodan'] = {
                             'ports': shodan_data.get('ports', []),
-                            'hostnames': shodan_data.get('hostnames', []),
-                            'vulns': shodan_data.get('vulns', [])
+                            'services': shodan_data.get('data', [])
                         }
                         network_info['passive_service_info']['shodan'] = {
                             'services': shodan_data.get('data', [])
                         }
-                
-                # Censys data
-                censys_api_id = os.getenv('CENSYS_API_ID')
-                censys_api_secret = os.getenv('CENSYS_API_SECRET')
-                if censys_api_id and censys_api_secret:
-                    response = requests.get(
-                        f'https://search.censys.io/api/v2/hosts/{ip_info}',
-                        auth=(censys_api_id, censys_api_secret),
-                        timeout=5
-                    )
-                    if response.status_code == 200:
-                        censys_data = response.json()
-                        network_info['passive_port_info']['censys'] = {
-                            'ports': censys_data.get('ports', []),
-                            'services': censys_data.get('services', [])
-                        }
-                        network_info['passive_service_info']['censys'] = {
-                            'services': censys_data.get('services', [])
-                        }
             except Exception as e:
-                network_info['passive_port_info']['error'] = str(e)
+                self.console.print(f"[yellow]Warning: Shodan API error: {str(e)}[/yellow]")
+            
+            # Perform nmap scan only for comprehensive profile
+            if self.profile == "comprehensive":
+                try:
+                    scanner = AttackSurfaceScanner(self.target)
+                    scanner.port_scan("1-1024")  # Scan common ports
+                    network_info['nmap_scan'] = {
+                        'ports': scanner.results['ports'],
+                        'services': scanner.results['services']
+                    }
+                except Exception as e:
+                    network_info['nmap_scan']['error'] = str(e)
             
         except Exception as e:
             self.console.print(f"[yellow]Warning: Network security assessment error: {str(e)}[/yellow]")
@@ -1388,60 +1406,89 @@ Impact: {priority['vulnerability']['impact']}
                 
         return status
 
-    async def run_scan(self) -> None:
-        """Run security assessments based on selected profile"""
-        if not self.target and not self.email:
-            return
+    async def run_scan(self, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+        """Run security assessment with optimized task execution"""
+        try:
+            self.console.print(Panel("Starting Security Assessment", style="bold blue"))
             
-        self.console.print(Panel("[bold blue]Starting Security Assessment[/bold blue]"))
-        
-        # Define tasks based on scan profile
-        tasks = []
-        
-        # Quick scan - basic checks only
-        if self.profile == "quick":
-            tasks = [
-                self.assess_network_security(),
-                self.assess_dns_health(),
-                self.assess_ssl_tls_security()
-            ]
-        
-        # Standard scan - recommended checks
-        elif self.profile == "standard":
-            tasks = [
-                self.assess_network_security(),
-                self.assess_dns_health(),
-                self.assess_ssl_tls_security(),
-                self.assess_endpoint_security(),
-                self.assess_vulnerability(),
-                self.assess_ip_reputation()
-            ]
-        
-        # Comprehensive scan - all checks
-        else:  # comprehensive
-            tasks = [
-                self.assess_network_security(),
-                self.assess_dns_health(),
-                self.assess_email_security(),
-                self.assess_endpoint_security(),
-                self.assess_vulnerability(),
-                self.assess_ip_reputation(),
-                self.assess_ssl_tls_security(),
-                self.assess_api_security(),
-                self.assess_container_security(),
-                self.assess_database_security(),
-                self.assess_patching_status(),
-                self.assess_compliance(),
-                self.manage_assets()
-            ]
-        
-        # Run selected tasks
-        await asyncio.gather(*tasks)
-        
-        # Calculate overall risk score
-        self.calculate_overall_risk()
-        
-        self.console.print(Panel("[bold green]Security Assessment Complete[/bold green]"))
+            # Get profile settings
+            profile_settings = self.scan_profiles.get(self.profile, self.scan_profiles['standard'])
+            timeout = profile_settings['timeout']
+            tasks = profile_settings['tasks']
+            
+            # Create tasks for concurrent execution
+            async def run_task(task_name: str):
+                try:
+                    if task_name == 'network_security':
+                        self.results['network_security'] = await self.assess_network_security()
+                    elif task_name == 'dns_health':
+                        self.results['dns_health'] = await self.assess_dns_health()
+                    elif task_name == 'ssl_tls_security':
+                        self.results['ssl_tls_security'] = await self.assess_ssl_tls_security()
+                    elif task_name == 'endpoint_security':
+                        self.results['endpoint_security'] = await self.assess_endpoint_security()
+                    elif task_name == 'vulnerability_assessment':
+                        self.results['vulnerability_assessment'] = await self.assess_vulnerability()
+                    elif task_name == 'ip_reputation':
+                        self.results['ip_reputation'] = await self.assess_ip_reputation()
+                    elif task_name == 'email_security':
+                        self.results['email_security'] = await self.assess_email_security()
+                    elif task_name == 'api_security':
+                        self.results['api_security'] = await self.assess_api_security()
+                    elif task_name == 'container_security':
+                        self.results['container_security'] = await self.assess_container_security()
+                    elif task_name == 'database_security':
+                        self.results['database_security'] = await self.assess_database_security()
+                    elif task_name == 'patching_status':
+                        self.results['patching_status'] = await self.assess_patching_status()
+                    elif task_name == 'compliance':
+                        self.results['compliance'] = await self.assess_compliance()
+                    elif task_name == 'asset_inventory':
+                        self.results['asset_inventory'] = await self.assess_asset_inventory()
+                    elif task_name == 'cloud_security':
+                        self.results['cloud_security'] = await self.assess_cloud_security()
+                except Exception as e:
+                    logger.error(f"Error in {task_name}: {str(e)}")
+                    self.results[task_name] = {'error': str(e)}
+                    raise  # Re-raise the exception to be caught by the caller
+
+            # Run tasks concurrently with timeout
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*[run_task(task) for task in tasks]),
+                    timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Scan timed out after {timeout} seconds")
+                # Add timeout message to results
+                for task in tasks:
+                    if not self.results[task]:
+                        self.results[task] = {'error': 'Task timed out'}
+            except Exception as e:
+                logger.error(f"Scan failed: {str(e)}")
+                return {
+                    'status': 'error',
+                    'error': str(e)
+                }
+
+            # Store results in database
+            self.store_results()
+            
+            # Send email report if email is provided
+            if self.email:
+                background_tasks.add_task(self.send_email_report)
+            
+            return {
+                'status': 'success',
+                'results': self.results
+            }
+            
+        except Exception as e:
+            logger.error(f"Scan failed: {str(e)}")
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
 
     def calculate_overall_risk(self) -> None:
         """Calculate overall risk score based on findings"""
@@ -1830,13 +1877,27 @@ Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             
         self.results['email_security'] = email_info
 
+    async def assess_cloud_security(self) -> None:
+        """Perform cloud security assessment (currently skipped)"""
+        if not self.target:
+            return
+            
+        self.console.print(f"[yellow]Cloud security assessment temporarily disabled.[/yellow]")
+        
+        cloud_info = {
+            'status': 'skipped',
+            'message': 'Cloud security assessment temporarily disabled - will be enabled in future updates'
+        }
+            
+        self.results['cloud_security'] = cloud_info
+
 # API endpoints
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/scan")
-async def scan_target(scan_request: ScanRequest):
+async def scan_target(scan_request: ScanRequest, background_tasks: BackgroundTasks):
     try:
         logger.info(f"Starting scan for target: {scan_request.target}")
         
@@ -1848,7 +1909,7 @@ async def scan_target(scan_request: ScanRequest):
         )
         
         # Perform security assessment
-        await scanner.run_scan()
+        results = await scanner.run_scan(background_tasks)
         
         logger.info(f"Scan completed successfully for target: {scan_request.target}")
         
@@ -1856,7 +1917,7 @@ async def scan_target(scan_request: ScanRequest):
         return {
             "status": "success",
             "message": "Scan completed successfully",
-            "results": scanner.results
+            "results": results
         }
     except Exception as e:
         logger.error(f"Error during scan: {str(e)}", exc_info=True)
@@ -1872,72 +1933,86 @@ async def health_check():
 
 @app.post("/download-report")
 async def download_report(results: ScanResults, background: BackgroundTasks):
+    """Generate and download a PDF report"""
     try:
         # Create a temporary file for the PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             tmp_path = tmp.name
 
-            # Create PDF
-            pdf = FPDF()
-            pdf.add_page()
+        # Create PDF
+        pdf = FPDF()
+        pdf.add_page()
 
-            # Set font
-            pdf.set_font("Arial", "B", 16)
-            pdf.cell(0, 10, "Security Assessment Report", ln=True, align='C')
-            pdf.ln(10)
+        # Add title
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, "Security Assessment Report", ln=True)
+        pdf.ln(10)
 
-            # Add timestamp
-            pdf.set_font("Arial", "I", 10)
-            pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
-            pdf.ln(10)
+        # Add target and date
+        pdf.set_font("Arial", "", 12)
+        pdf.cell(0, 10, f"Target: {results.target}", ln=True)
+        pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
+        pdf.ln(10)
 
-            # Add summary
-            pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 10, "Summary", ln=True)
-            pdf.set_font("Arial", "", 10)
-            if "risk_metrics" in results.results:
-                metrics = results.results["risk_metrics"]
-                pdf.cell(0, 10, f"Total Issues: {metrics.get('total_issues', 0)}", ln=True)
-                pdf.cell(0, 10, f"Critical Issues: {metrics.get('critical_issues', 0)}", ln=True)
-                pdf.cell(0, 10, f"Risk Score: {metrics.get('risk_score', 0)}%", ln=True)
-            pdf.ln(10)
+        # Add summary
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, "Summary", ln=True)
+        pdf.set_font("Arial", "", 10)
+        
+        # Calculate metrics
+        total_issues = 0
+        critical_issues = 0
+        risk_score = 0
+        
+        for section, data in results.results.items():
+            if isinstance(data, dict):
+                if 'issues' in data:
+                    total_issues += len(data['issues'])
+                    critical_issues += len([i for i in data['issues'] if i.get('severity') == 'Critical'])
+                if 'risk_score' in data:
+                    risk_score = max(risk_score, data['risk_score'])
+        
+        pdf.cell(0, 10, f"Total Issues: {total_issues}", ln=True)
+        pdf.cell(0, 10, f"Critical Issues: {critical_issues}", ln=True)
+        pdf.cell(0, 10, f"Risk Score: {risk_score}%", ln=True)
+        pdf.ln(10)
 
-            # Add detailed results
-            for section, data in results.results.items():
-                if section != "risk_metrics":
-                    pdf.set_font("Arial", "B", 12)
-                    pdf.cell(0, 10, section.replace("_", " ").title(), ln=True)
-                    pdf.set_font("Arial", "", 10)
-                    
-                    if isinstance(data, dict):
-                        for key, value in data.items():
-                            if key != "error":
-                                if isinstance(value, list):
-                                    pdf.cell(0, 10, f"{key}:", ln=True)
-                                    for item in value:
-                                        if isinstance(item, dict):
-                                            for k, v in item.items():
-                                                pdf.cell(0, 10, f"  {k}: {v}", ln=True)
-                                        else:
-                                            pdf.cell(0, 10, f"  {item}", ln=True)
+        # Add detailed results
+        for section, data in results.results.items():
+            if isinstance(data, dict):
+                pdf.set_font("Arial", "B", 12)
+                pdf.cell(0, 10, section.replace("_", " ").title(), ln=True)
+                pdf.set_font("Arial", "", 10)
+                
+                for key, value in data.items():
+                    if key != "error":
+                        if isinstance(value, list):
+                            pdf.cell(0, 10, f"{key}:", ln=True)
+                            for item in value:
+                                if isinstance(item, dict):
+                                    for k, v in item.items():
+                                        pdf.cell(0, 10, f"  {k}: {v}", ln=True)
                                 else:
-                                    pdf.cell(0, 10, f"{key}: {value}", ln=True)
-                    pdf.ln(10)
+                                    pdf.cell(0, 10, f"  {item}", ln=True)
+                        else:
+                            pdf.cell(0, 10, f"{key}: {value}", ln=True)
+                pdf.ln(5)
 
-            # Save the PDF
-            pdf.output(tmp_path)
+        # Save the PDF
+        pdf.output(tmp_path)
 
-            # Add cleanup task
-            background.add_task(lambda: os.unlink(tmp_path))
+        # Add cleanup task
+        background.add_task(lambda: os.unlink(tmp_path))
 
-            # Return the file
-            return FileResponse(
-                tmp_path,
-                media_type="application/pdf",
-                filename="security-report.pdf"
-            )
+        # Return the file
+        return FileResponse(
+            tmp_path,
+            media_type="application/pdf",
+            filename="security-report.pdf"
+        )
 
     except Exception as e:
+        logger.error(f"Error generating report: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

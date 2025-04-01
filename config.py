@@ -6,28 +6,14 @@ load_dotenv()
 
 # API Configuration
 API_CONFIG = {
-    'ABUSEIPDB': {
-        'key': os.getenv('ABUSEIPDB_API_KEY'),
-        'base_url': 'https://api.abuseipdb.com/api/v2',
-        'rate_limit': 60  # requests per minute
-    },
-    'CENSYS': {
-        'key': os.getenv('CENSYS_API_KEY'),
-        'base_url': 'https://search.censys.io/api/v2',
-        'rate_limit': 30  # requests per minute
-    },
     'SHODAN': {
         'key': os.getenv('SHODAN_API_KEY'),
         'base_url': 'https://api.shodan.io',
-        'rate_limit': 1  # requests per second
+    },
+    'ABUSEIPDB': {
+        'key': os.getenv('ABUSEIPDB_API_KEY'),
+        'base_url': 'https://api.abuseipdb.com/api/v2',
     }
-}
-
-# Slack Configuration
-SLACK_CONFIG = {
-    'bot_token': os.getenv('SLACK_BOT_TOKEN'),
-    'app_token': os.getenv('SLACK_APP_TOKEN'),
-    'rate_limit': 50  # messages per minute
 }
 
 # Scanner Configuration

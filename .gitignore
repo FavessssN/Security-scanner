@@ -1,9 +1,13 @@
+# Environment variables
+.env
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -23,14 +27,25 @@ wheels/
 # Virtual Environment
 venv/
 ENV/
-env/
-.env
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
 
 # Project specific
 security_scanner.db
@@ -44,19 +59,17 @@ security_scanner.db
 *.key
 *.crt
 
-# Database
-*.db
-*.sqlite3
+# Documentation
+*.txt
+!requirements.txt
+!LICENSE
+!README.md
 
-# Logs
-logs/
-*.log
-
-# Local development
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Project specific
+asset_inventory_guide.txt
+attack_surface_framework.txt
+project_report.txt
+vulnerability_assessment_guide.txt
 
 # Test coverage
 .coverage
@@ -72,14 +85,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 
-# Documentation
-*.txt
-!requirements.txt
-!LICENSE
-!README.md
-
-# Project specific
-asset_inventory_guide.txt
-attack_surface_framework.txt
-project_report.txt
-vulnerability_assessment_guide.txt 
+# Local development
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local 

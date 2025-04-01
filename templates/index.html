@@ -248,6 +248,10 @@
             color: #166534;
         }
 
+        .hidden {
+            display: none !important;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 1rem;
@@ -394,7 +398,7 @@
             const downloadBtn = document.getElementById('downloadReport');
             const target = document.getElementById('target').value;
             
-            // Show loading state
+            // Show loading state and hide results
             loading.classList.remove('hidden');
             results.classList.add('hidden');
             downloadBtn.disabled = true;
@@ -435,9 +439,13 @@
                     throw new Error('Invalid scan results received');
                 }
                 
-                displayResults(scanResults.results);
+                // Hide loading and show results
+                loading.classList.add('hidden');
                 results.classList.remove('hidden');
                 downloadBtn.disabled = false;
+                
+                // Display results
+                displayResults(scanResults.results);
                 
                 // Update overall status
                 const overallStatus = document.getElementById('overallStatus');
@@ -456,13 +464,14 @@
             } catch (error) {
                 console.error('Scan error:', error);
                 alert(`Scan failed: ${error.message}`);
+                // Hide loading on error
+                loading.classList.add('hidden');
             } finally {
                 // Remove loading message
                 const loadingMessage = loading.querySelector('.text-white');
                 if (loadingMessage) {
                     loadingMessage.remove();
                 }
-                loading.classList.add('hidden');
             }
         });
 
@@ -475,30 +484,52 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(scanResults)
+                    body: JSON.stringify({
+                        target: scanResults.target,
+                        results: scanResults.results
+                    })
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Failed to generate report');
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to generate report');
                 }
                 
+                // Get the filename from the Content-Disposition header or use default
+                const contentDisposition = response.headers.get('Content-Disposition');
+                const filename = contentDisposition
+                    ? contentDisposition.split('filename=')[1].replace(/"/g, '')
+                    : 'security-report.pdf';
+                
+                // Create blob from response
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
+                
+                // Create download link
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'security-report.pdf';
+                a.download = filename;
                 document.body.appendChild(a);
+                
+                // Trigger download
                 a.click();
+                
+                // Cleanup
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
                 
             } catch (error) {
-                alert('Failed to download report. Please try again.');
                 console.error('Report download error:', error);
+                alert('Failed to download report: ' + error.message);
             }
         });
 
         function displayResults(results) {
+            if (!results) {
+                console.error('No results received');
+                return;
+            }
+
             // Update summary
             const totalIssues = calculateTotalIssues(results);
             const criticalIssues = calculateCriticalIssues(results);
@@ -510,38 +541,52 @@
             
             // Display Network Security
             const networkSecurity = document.getElementById('networkSecurity');
-            networkSecurity.innerHTML = formatNetworkSecurity(results.network_security);
-            updateSectionStatus('networkStatus', results.network_security);
+            if (networkSecurity) {
+                networkSecurity.innerHTML = formatNetworkSecurity(results.network_security || {});
+                updateSectionStatus('networkStatus', results.network_security);
+            }
             
             // Display IP Scanner
             const ipScanner = document.getElementById('ipScanner');
-            ipScanner.innerHTML = formatIPScanner(results.ip_reputation);
-            updateSectionStatus('ipStatus', results.ip_reputation);
+            if (ipScanner) {
+                ipScanner.innerHTML = formatIPScanner(results.ip_reputation || {});
+                updateSectionStatus('ipStatus', results.ip_reputation);
+            }
             
             // Display DNS Health
             const dnsHealth = document.getElementById('dnsHealth');
-            dnsHealth.innerHTML = formatDNSHealth(results.dns_health);
-            updateSectionStatus('dnsStatus', results.dns_health);
+            if (dnsHealth) {
+                dnsHealth.innerHTML = formatDNSHealth(results.dns_health || {});
+                updateSectionStatus('dnsStatus', results.dns_health);
+            }
             
             // Display SSL/TLS Security
             const sslSecurity = document.getElementById('sslSecurity');
-            sslSecurity.innerHTML = formatSSLSecurity(results.ssl_tls_security);
-            updateSectionStatus('sslStatus', results.ssl_tls_security);
+            if (sslSecurity) {
+                sslSecurity.innerHTML = formatSSLSecurity(results.ssl_tls_security || {});
+                updateSectionStatus('sslStatus', results.ssl_tls_security);
+            }
             
             // Display Endpoint Security
             const endpointSecurity = document.getElementById('endpointSecurity');
-            endpointSecurity.innerHTML = formatEndpointSecurity(results.endpoint_security);
-            updateSectionStatus('endpointStatus', results.endpoint_security);
+            if (endpointSecurity) {
+                endpointSecurity.innerHTML = formatEndpointSecurity(results.endpoint_security || {});
+                updateSectionStatus('endpointStatus', results.endpoint_security);
+            }
             
             // Display Email Security
             const emailSecurity = document.getElementById('emailSecurity');
-            emailSecurity.innerHTML = formatEmailSecurity(results.email_security);
-            updateSectionStatus('emailStatus', results.email_security);
+            if (emailSecurity) {
+                emailSecurity.innerHTML = formatEmailSecurity(results.email_security || {});
+                updateSectionStatus('emailStatus', results.email_security);
+            }
             
             // Display Vulnerabilities
             const vulnerabilities = document.getElementById('vulnerabilities');
-            vulnerabilities.innerHTML = formatVulnerabilities(results.vulnerability_assessment);
-            updateSectionStatus('vulnStatus', results.vulnerability_assessment);
+            if (vulnerabilities) {
+                vulnerabilities.innerHTML = formatVulnerabilities(results.vulnerability_assessment || {});
+                updateSectionStatus('vulnStatus', results.vulnerability_assessment);
+            }
         }
 
         function updateSectionStatus(statusId, data) {
@@ -552,9 +597,9 @@
                 return;
             }
 
-            const hasIssues = data.issues && data.issues.length > 0;
-            const hasVulnerabilities = data.common_vulnerabilities && data.common_vulnerabilities.length > 0;
-            const hasCriticalIssues = hasVulnerabilities && data.common_vulnerabilities.some(v => v.severity === 'Critical');
+            const hasIssues = data.issues && Array.isArray(data.issues) && data.issues.length > 0;
+            const hasVulnerabilities = data.common_vulnerabilities && Array.isArray(data.common_vulnerabilities) && data.common_vulnerabilities.length > 0;
+            const hasCriticalIssues = hasVulnerabilities && data.common_vulnerabilities.some(v => (v.severity || 'warning').toLowerCase() === 'critical');
 
             if (hasCriticalIssues) {
                 statusElement.textContent = 'Status: Critical';
@@ -664,288 +709,329 @@
         }
 
         function formatNetworkSecurity(data) {
-            if (!data) return '<p class="text-gray-500">No network security data available</p>';
+            if (!data || Object.keys(data).length === 0) {
+                return '<p class="text-gray-500">No network security data available</p>';
+            }
             
             let html = '';
             
-            if (data.ip_info) {
+            if (data.ip_info && Object.keys(data.ip_info).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">IP Information</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">IP Address:</span> ${data.ip_info.ip}</p>
-                            <p><span class="font-medium">Hostname:</span> ${data.ip_info.hostname || 'N/A'}</p>
-                            <p><span class="font-medium">Location:</span> ${data.ip_info.location || 'N/A'}</p>
+                            ${Object.entries(data.ip_info).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.dns_info) {
+            if (data.dns_info && Object.keys(data.dns_info).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">DNS Information</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">Nameservers:</span> ${data.dns_info.nameservers.join(', ') || 'N/A'}</p>
-                            <p><span class="font-medium">MX Records:</span> ${data.dns_info.mx_records.join(', ') || 'N/A'}</p>
+                            ${Object.entries(data.dns_info).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${Array.isArray(value) ? value.join(', ') : value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.whois_info) {
+            if (data.whois_info && Object.keys(data.whois_info).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">WHOIS Information</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">Registrar:</span> ${data.whois_info.registrar || 'N/A'}</p>
-                            <p><span class="font-medium">Creation Date:</span> ${data.whois_info.creation_date || 'N/A'}</p>
-                            <p><span class="font-medium">Expiration Date:</span> ${data.whois_info.expiration_date || 'N/A'}</p>
+                            ${Object.entries(data.whois_info).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.issues && data.issues.length > 0) {
+            if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
                 html += `
                     <div>
                         <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
                         ${data.issues.map(issue => `
-                            <div class="issue ${issue.severity.toLowerCase()}">
-                                <p class="font-medium">${issue.title}</p>
-                                <p class="text-sm mt-1">${issue.description}</p>
+                            <div class="issue ${(issue.severity || 'warning').toLowerCase()}">
+                                <p class="font-medium">${issue.title || 'Unknown Issue'}</p>
+                                <p class="text-sm mt-1">${issue.description || 'No description available'}</p>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
-            return html || '<p class="text-gray-500">No issues found</p>';
+            return html || '<p class="text-gray-500">No network security information available</p>';
         }
 
         function formatIPScanner(data) {
-            if (!data) return '<p class="text-gray-500">No IP reputation data available</p>';
+            if (!data || Object.keys(data).length === 0) {
+                return '<p class="text-gray-500">No IP reputation data available</p>';
+            }
             
             let html = '';
             
-            if (data.ip_info) {
+            if (data.ip_info && Object.keys(data.ip_info).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">IP Information</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">IP Address:</span> ${data.ip_info.ip}</p>
-                            <p><span class="font-medium">Hostname:</span> ${data.ip_info.hostname || 'N/A'}</p>
-                            <p><span class="font-medium">Location:</span> ${data.ip_info.location || 'N/A'}</p>
+                            ${Object.entries(data.ip_info).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.reputation_data) {
+            if (data.reputation_data && Object.keys(data.reputation_data).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">Reputation Data</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">AbuseIPDB Score:</span> ${data.reputation_data.abuseipdb_score || 'N/A'}</p>
-                            <p><span class="font-medium">VirusTotal Score:</span> ${data.reputation_data.virustotal_score || 'N/A'}</p>
-                            <p><span class="font-medium">Spamhaus Status:</span> ${data.reputation_data.spamhaus_status || 'N/A'}</p>
+                            ${Object.entries(data.reputation_data).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.issues && data.issues.length > 0) {
+            if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
                 html += `
                     <div>
                         <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
                         ${data.issues.map(issue => `
-                            <div class="issue ${issue.severity.toLowerCase()}">
-                                <p class="font-medium">${issue.title}</p>
-                                <p class="text-sm mt-1">${issue.description}</p>
+                            <div class="issue ${(issue.severity || 'warning').toLowerCase()}">
+                                <p class="font-medium">${issue.title || 'Unknown Issue'}</p>
+                                <p class="text-sm mt-1">${issue.description || 'No description available'}</p>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
-            return html || '<p class="text-gray-500">No issues found</p>';
+            return html || '<p class="text-gray-500">No IP reputation information available</p>';
         }
 
         function formatDNSHealth(data) {
-            if (!data) return '<p class="text-gray-500">No DNS health data available</p>';
+            if (!data || Object.keys(data).length === 0) {
+                return '<p class="text-gray-500">No DNS health data available</p>';
+            }
             
             let html = '';
             
-            if (data.dns_records) {
+            if (data.security_records && Object.keys(data.security_records).length > 0) {
                 html += `
                     <div class="mb-4">
-                        <h3 class="font-semibold text-gray-800 mb-2">DNS Records</h3>
+                        <h3 class="font-semibold text-gray-800 mb-2">Security Records</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">SPF Record:</span> ${data.dns_records.spf || 'N/A'}</p>
-                            <p><span class="font-medium">DMARC Record:</span> ${data.dns_records.dmarc || 'N/A'}</p>
-                            <p><span class="font-medium">DKIM Record:</span> ${data.dns_records.dkim || 'N/A'}</p>
+                            ${Object.entries(data.security_records).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${Array.isArray(value) ? value.join(', ') : value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.issues && data.issues.length > 0) {
+            if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
                 html += `
                     <div>
                         <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
                         ${data.issues.map(issue => `
-                            <div class="issue ${issue.severity.toLowerCase()}">
-                                <p class="font-medium">${issue.title}</p>
-                                <p class="text-sm mt-1">${issue.description}</p>
+                            <div class="issue ${(issue.severity || 'warning').toLowerCase()}">
+                                <p class="font-medium">${issue.title || 'Unknown Issue'}</p>
+                                <p class="text-sm mt-1">${issue.description || 'No description available'}</p>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
-            return html || '<p class="text-gray-500">No issues found</p>';
+            return html || '<p class="text-gray-500">No DNS health information available</p>';
         }
 
         function formatSSLSecurity(data) {
-            if (!data) return '<p class="text-gray-500">No SSL/TLS security data available</p>';
+            if (!data || Object.keys(data).length === 0) {
+                return '<p class="text-gray-500">No SSL/TLS security data available</p>';
+            }
             
             let html = '';
             
-            if (data.certificate_info) {
+            if (data.certificate_info && Object.keys(data.certificate_info).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">Certificate Information</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">Issuer:</span> ${data.certificate_info.issuer || 'N/A'}</p>
-                            <p><span class="font-medium">Valid From:</span> ${data.certificate_info.valid_from || 'N/A'}</p>
-                            <p><span class="font-medium">Valid Until:</span> ${data.certificate_info.valid_until || 'N/A'}</p>
-                            <p><span class="font-medium">Protocol:</span> ${data.certificate_info.protocol || 'N/A'}</p>
+                            ${Object.entries(data.certificate_info).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.issues && data.issues.length > 0) {
+            if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
                 html += `
                     <div>
                         <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
                         ${data.issues.map(issue => `
-                            <div class="issue ${issue.severity.toLowerCase()}">
-                                <p class="font-medium">${issue.title}</p>
-                                <p class="text-sm mt-1">${issue.description}</p>
+                            <div class="issue ${(issue.severity || 'warning').toLowerCase()}">
+                                <p class="font-medium">${issue.title || 'Unknown Issue'}</p>
+                                <p class="text-sm mt-1">${issue.description || 'No description available'}</p>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
-            return html || '<p class="text-gray-500">No issues found</p>';
+            return html || '<p class="text-gray-500">No SSL/TLS security information available</p>';
         }
 
         function formatEndpointSecurity(data) {
-            if (!data) return '<p class="text-gray-500">No endpoint security data available</p>';
+            if (!data || Object.keys(data).length === 0) {
+                return '<p class="text-gray-500">No endpoint security data available</p>';
+            }
             
             let html = '';
             
-            if (data.server_info) {
+            if (data.server_info && Object.keys(data.server_info).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">Server Information</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">Server Type:</span> ${data.server_info.server_type || 'N/A'}</p>
-                            <p><span class="font-medium">Version:</span> ${data.server_info.version || 'N/A'}</p>
-                            <p><span class="font-medium">Operating System:</span> ${data.server_info.os || 'N/A'}</p>
+                            ${Object.entries(data.server_info).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.security_headers) {
+            if (data.security_headers && Object.keys(data.security_headers).length > 0) {
                 html += `
                     <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">Security Headers</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">X-Frame-Options:</span> ${data.security_headers.x_frame_options || 'N/A'}</p>
-                            <p><span class="font-medium">X-XSS-Protection:</span> ${data.security_headers.x_xss_protection || 'N/A'}</p>
-                            <p><span class="font-medium">X-Content-Type-Options:</span> ${data.security_headers.x_content_type_options || 'N/A'}</p>
+                            ${Object.entries(data.security_headers).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.issues && data.issues.length > 0) {
+            if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
                 html += `
                     <div>
                         <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
                         ${data.issues.map(issue => `
-                            <div class="issue ${issue.severity.toLowerCase()}">
-                                <p class="font-medium">${issue.title}</p>
-                                <p class="text-sm mt-1">${issue.description}</p>
+                            <div class="issue ${(issue.severity || 'warning').toLowerCase()}">
+                                <p class="font-medium">${issue.title || 'Unknown Issue'}</p>
+                                <p class="text-sm mt-1">${issue.description || 'No description available'}</p>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
-            return html || '<p class="text-gray-500">No issues found</p>';
+            return html || '<p class="text-gray-500">No endpoint security information available</p>';
         }
 
         function formatEmailSecurity(data) {
-            if (!data) return '<p class="text-gray-500">No email security data available</p>';
+            if (!data || Object.keys(data).length === 0) {
+                return '<p class="text-gray-500">No email security data available</p>';
+            }
             
             let html = '';
             
-            if (data.email_info) {
+            if (data.validation && Object.keys(data.validation).length > 0) {
                 html += `
                     <div class="mb-4">
-                        <h3 class="font-semibold text-gray-800 mb-2">Email Information</h3>
+                        <h3 class="font-semibold text-gray-800 mb-2">Email Validation</h3>
                         <div class="bg-gray-50 p-4 rounded-lg">
-                            <p><span class="font-medium">Email Format:</span> ${data.email_info.format || 'N/A'}</p>
-                            <p><span class="font-medium">Domain:</span> ${data.email_info.domain || 'N/A'}</p>
-                            <p><span class="font-medium">MX Records:</span> ${data.email_info.mx_records || 'N/A'}</p>
+                            ${Object.entries(data.validation).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
                         </div>
                     </div>
                 `;
             }
             
-            if (data.issues && data.issues.length > 0) {
+            if (data.domain_security && Object.keys(data.domain_security).length > 0) {
+                html += `
+                    <div class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Domain Security</h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            ${Object.entries(data.domain_security).map(([key, value]) => `
+                                <p><span class="font-medium">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value || 'N/A'}</p>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
                 html += `
                     <div>
                         <h3 class="font-semibold text-gray-800 mb-2">Issues Found</h3>
                         ${data.issues.map(issue => `
-                            <div class="issue ${issue.severity.toLowerCase()}">
-                                <p class="font-medium">${issue.title}</p>
-                                <p class="text-sm mt-1">${issue.description}</p>
+                            <div class="issue ${(issue.severity || 'warning').toLowerCase()}">
+                                <p class="font-medium">${issue.title || 'Unknown Issue'}</p>
+                                <p class="text-sm mt-1">${issue.description || 'No description available'}</p>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
-            return html || '<p class="text-gray-500">No issues found</p>';
+            return html || '<p class="text-gray-500">No email security information available</p>';
         }
 
         function formatVulnerabilities(data) {
-            if (!data) return '<p class="text-gray-500">No vulnerability data available</p>';
+            if (!data || Object.keys(data).length === 0) {
+                return '<p class="text-gray-500">No vulnerability data available</p>';
+            }
             
             let html = '';
             
-            if (data.common_vulnerabilities && data.common_vulnerabilities.length > 0) {
+            if (data.common_vulnerabilities && Array.isArray(data.common_vulnerabilities) && data.common_vulnerabilities.length > 0) {
                 html += `
-                    <div>
+                    <div class="mb-4">
                         <h3 class="font-semibold text-gray-800 mb-2">Common Vulnerabilities</h3>
                         ${data.common_vulnerabilities.map(vuln => `
-                            <div class="issue ${vuln.severity.toLowerCase()}">
-                                <p class="font-medium">${vuln.title}</p>
-                                <p class="text-sm mt-1">${vuln.description}</p>
-                                <p class="text-sm mt-2"><span class="font-medium">Severity:</span> ${vuln.severity}</p>
+                            <div class="issue ${(vuln.severity || 'warning').toLowerCase()} mb-4">
+                                <p class="font-medium">${vuln.title || 'Unknown Vulnerability'}</p>
+                                <p class="text-sm mt-1">${vuln.description || 'No description available'}</p>
+                                ${vuln.recommendation ? `<p class="text-sm mt-2"><span class="font-medium">Recommendation:</span> ${vuln.recommendation}</p>` : ''}
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
-            return html || '<p class="text-gray-500">No vulnerabilities found</p>';
+            if (data.issues && Array.isArray(data.issues) && data.issues.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="font-semibold text-gray-800 mb-2">Additional Issues</h3>
+                        ${data.issues.map(issue => `
+                            <div class="issue ${(issue.severity || 'warning').toLowerCase()}">
+                                <p class="font-medium">${issue.title || 'Unknown Issue'}</p>
+                                <p class="text-sm mt-1">${issue.description || 'No description available'}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return html || '<p class="text-gray-500">No vulnerability information available</p>';
         }
     </script>
 </body>
